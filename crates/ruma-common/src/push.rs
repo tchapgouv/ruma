@@ -1,6 +1,6 @@
 //! Common types for the [push notifications module][push].
 //!
-//! [push]: https://spec.matrix.org/latest/client-server-api/#push-notifications
+//! [push]: https://spec.matrix.org/v1.18/client-server-api/#push-notifications
 //!
 //! ## Understanding the types of this module
 //!
@@ -18,14 +18,12 @@ use std::hash::{Hash, Hasher};
 
 use indexmap::{Equivalent, IndexSet};
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "unstable-unspecified")]
-use serde_json::Value as JsonValue;
 use thiserror::Error;
 use tracing::instrument;
 
 use crate::{
-    serde::{Raw, StringEnum},
     OwnedRoomId, OwnedUserId, PrivOwnedStr,
+    serde::{JsonObject, Raw, StringEnum},
 };
 
 mod action;
@@ -33,14 +31,18 @@ mod condition;
 mod iter;
 mod predefined;
 
+#[cfg(feature = "unstable-msc4306")]
+pub use self::condition::ThreadSubscriptionConditionData;
 #[cfg(feature = "unstable-msc3932")]
-pub use self::condition::RoomVersionFeature;
+pub use self::condition::{RoomVersionFeature, RoomVersionSupportsConditionData};
 pub use self::{
-    action::{Action, Tweak},
+    action::{Action, HighlightTweakValue, SoundTweakValue, Tweak},
     condition::{
-        ComparisonOperator, FlattenedJson, FlattenedJsonValue, PushCondition,
-        PushConditionPowerLevelsCtx, PushConditionRoomCtx, RoomMemberCountIs, ScalarJsonValue,
-        _CustomPushCondition,
+        _CustomPushCondition, ComparisonOperator, EventMatchConditionData,
+        EventPropertyContainsConditionData, EventPropertyIsConditionData, FlattenedJson,
+        FlattenedJsonValue, PushCondition, PushConditionPowerLevelsCtx, PushConditionRoomCtx,
+        RoomMemberCountConditionData, RoomMemberCountIs, ScalarJsonValue,
+        SenderNotificationPermissionConditionData,
     },
     iter::{AnyPushRule, AnyPushRuleRef, RulesetIntoIter, RulesetIter},
     predefined::{
@@ -54,11 +56,17 @@ pub use self::{
 /// For example, some rules may only be applied for messages from a particular sender, a particular
 /// room, or by default. The push ruleset contains the entire set of scopes and rules.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct Ruleset {
     /// These rules configure behavior for (unencrypted) messages that match certain patterns.
     #[serde(default, skip_serializing_if = "IndexSet::is_empty")]
     pub content: IndexSet<PatternedPushRule>,
+
+    /// These rules are identical to override rules, but have a lower priority than `room` and
+    /// `sender` rules.
+    #[cfg(feature = "unstable-msc4306")]
+    #[serde(default, skip_serializing_if = "IndexSet::is_empty")]
+    pub postcontent: IndexSet<ConditionalPushRule>,
 
     /// These user-configured rules are given the highest priority.
     ///
@@ -141,6 +149,16 @@ impl Ruleset {
 
                 insert_and_move_rule(&mut self.override_, rule, default_position, after, before)
             }
+            #[cfg(feature = "unstable-msc4306")]
+            NewPushRule::PostContent(r) => {
+                let mut rule = ConditionalPushRule::from(r);
+
+                if let Some(prev_rule) = self.postcontent.get(rule.rule_id.as_str()) {
+                    rule.enabled = prev_rule.enabled;
+                }
+
+                insert_and_move_rule(&mut self.postcontent, rule, 0, after, before)
+            }
             NewPushRule::Underride(r) => {
                 let mut rule = ConditionalPushRule::from(r);
 
@@ -190,6 +208,8 @@ impl Ruleset {
             RuleKind::Sender => self.sender.get(rule_id).map(AnyPushRuleRef::Sender),
             RuleKind::Room => self.room.get(rule_id).map(AnyPushRuleRef::Room),
             RuleKind::Content => self.content.get(rule_id).map(AnyPushRuleRef::Content),
+            #[cfg(feature = "unstable-msc4306")]
+            RuleKind::PostContent => self.postcontent.get(rule_id).map(AnyPushRuleRef::PostContent),
             RuleKind::_Custom(_) => None,
         }
     }
@@ -231,6 +251,12 @@ impl Ruleset {
                 let mut rule = self.content.get(rule_id).ok_or(RuleNotFoundError)?.clone();
                 rule.enabled = enabled;
                 self.content.replace(rule);
+            }
+            #[cfg(feature = "unstable-msc4306")]
+            RuleKind::PostContent => {
+                let mut rule = self.postcontent.get(rule_id).ok_or(RuleNotFoundError)?.clone();
+                rule.enabled = enabled;
+                self.postcontent.replace(rule);
             }
             RuleKind::_Custom(_) => return Err(RuleNotFoundError),
         }
@@ -276,6 +302,12 @@ impl Ruleset {
                 rule.actions = actions;
                 self.content.replace(rule);
             }
+            #[cfg(feature = "unstable-msc4306")]
+            RuleKind::PostContent => {
+                let mut rule = self.postcontent.get(rule_id).ok_or(RuleNotFoundError)?.clone();
+                rule.actions = actions;
+                self.postcontent.replace(rule);
+            }
             RuleKind::_Custom(_) => return Err(RuleNotFoundError),
         }
 
@@ -289,7 +321,7 @@ impl Ruleset {
     /// * `event` - The raw JSON of a room message event.
     /// * `context` - The context of the message and room at the time of the event.
     #[instrument(skip_all, fields(context.room_id = %context.room_id))]
-    pub fn get_match<T>(
+    pub async fn get_match<T>(
         &self,
         event: &Raw<T>,
         context: &PushConditionRoomCtx,
@@ -298,10 +330,16 @@ impl Ruleset {
 
         if event.get_str("sender").is_some_and(|sender| sender == context.user_id) {
             // no need to look at the rules if the event was by the user themselves
-            None
-        } else {
-            self.iter().find(|rule| rule.applies(&event, context))
+            return None;
         }
+
+        for rule in self {
+            if rule.applies(&event, context).await {
+                return Some(rule);
+            }
+        }
+
+        None
     }
 
     /// Get the push actions that apply to this event.
@@ -313,8 +351,12 @@ impl Ruleset {
     /// * `event` - The raw JSON of a room message event.
     /// * `context` - The context of the message and room at the time of the event.
     #[instrument(skip_all, fields(context.room_id = %context.room_id))]
-    pub fn get_actions<T>(&self, event: &Raw<T>, context: &PushConditionRoomCtx) -> &[Action] {
-        self.get_match(event, context).map(|rule| rule.actions()).unwrap_or(&[])
+    pub async fn get_actions<T>(
+        &self,
+        event: &Raw<T>,
+        context: &PushConditionRoomCtx,
+    ) -> &[Action] {
+        self.get_match(event, context).await.map(|rule| rule.actions()).unwrap_or(&[])
     }
 
     /// Removes a user-defined rule in the rule set.
@@ -351,6 +393,10 @@ impl Ruleset {
             RuleKind::Content => {
                 self.content.shift_remove(rule_id);
             }
+            #[cfg(feature = "unstable-msc4306")]
+            RuleKind::PostContent => {
+                self.postcontent.shift_remove(rule_id);
+            }
             // This has been handled in the `self.get` call earlier.
             RuleKind::_Custom(_) => unreachable!(),
         }
@@ -368,7 +414,7 @@ impl Ruleset {
 /// To create an instance of this type, first create a `SimplePushRuleInit` and convert it via
 /// `SimplePushRule::from` / `.into()`.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct SimplePushRule<T> {
     /// Actions to determine if and how a notification is delivered for events matching this rule.
     pub actions: Vec<Action>,
@@ -453,7 +499,7 @@ where
 /// To create an instance of this type, first create a `ConditionalPushRuleInit` and convert it via
 /// `ConditionalPushRule::from` / `.into()`.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct ConditionalPushRule {
     /// Actions to determine if and how a notification is delivered for events matching this rule.
     pub actions: Vec<Action>,
@@ -482,7 +528,7 @@ impl ConditionalPushRule {
     ///
     /// * `event` - The flattened JSON representation of a room message event.
     /// * `context` - The context of the room at the time of the event.
-    pub fn applies(&self, event: &FlattenedJson, context: &PushConditionRoomCtx) -> bool {
+    pub async fn applies(&self, event: &FlattenedJson, context: &PushConditionRoomCtx) -> bool {
         if !self.enabled {
             return false;
         }
@@ -519,7 +565,12 @@ impl ConditionalPushRule {
             return false;
         }
 
-        self.conditions.iter().all(|cond| cond.applies(event, context))
+        for cond in &self.conditions {
+            if !cond.applies(event, context).await {
+                return false;
+            }
+        }
+        true
     }
 }
 
@@ -586,7 +637,7 @@ impl Equivalent<ConditionalPushRule> for str {
 /// To create an instance of this type, first create a `PatternedPushRuleInit` and convert it via
 /// `PatternedPushRule::from` / `.into()`.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct PatternedPushRule {
     /// Actions to determine if and how a notification is delivered for events matching this rule.
     pub actions: Vec<Action>,
@@ -633,9 +684,9 @@ impl PatternedPushRule {
     }
 }
 
-/// Initial set of fields of `PatterenedPushRule`.
+/// Initial set of fields of `PatternedPushRule`.
 ///
-/// This struct will not be updated even if additional fields are added to `PatterenedPushRule` in a
+/// This struct will not be updated even if additional fields are added to `PatternedPushRule` in a
 /// new (non-breaking) release of the Matrix specification.
 #[derive(Debug)]
 #[allow(clippy::exhaustive_structs)]
@@ -688,7 +739,7 @@ impl Equivalent<PatternedPushRule> for str {
 
 /// Information for a pusher using the Push Gateway API.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct HttpPusherData {
     /// The URL to use to send notifications to.
     ///
@@ -699,36 +750,24 @@ pub struct HttpPusherData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub format: Option<PushFormat>,
 
-    /// iOS (+ macOS?) specific default payload that will be sent to apple push notification
-    /// service.
-    ///
-    /// For more information, see [Sygnal docs][sygnal].
-    ///
-    /// [sygnal]: https://github.com/matrix-org/sygnal/blob/main/docs/applications.md#ios-applications-beware
-    // Not specified, issue: https://github.com/matrix-org/matrix-spec/issues/921
-    #[cfg(feature = "unstable-unspecified")]
-    #[serde(default, skip_serializing_if = "JsonValue::is_null")]
-    pub default_payload: JsonValue,
+    /// Custom data for the pusher.
+    #[serde(flatten, default, skip_serializing_if = "JsonObject::is_empty")]
+    pub data: JsonObject,
 }
 
 impl HttpPusherData {
     /// Creates a new `HttpPusherData` with the given URL.
     pub fn new(url: String) -> Self {
-        Self {
-            url,
-            format: None,
-            #[cfg(feature = "unstable-unspecified")]
-            default_payload: JsonValue::default(),
-        }
+        Self { url, format: None, data: JsonObject::default() }
     }
 }
 
 /// A special format that the homeserver should use when sending notifications to a Push Gateway.
 /// Currently, only `event_id_only` is supported, see the [Push Gateway API][spec].
 ///
-/// [spec]: https://spec.matrix.org/latest/push-gateway-api/#homeserver-behaviour
+/// [spec]: https://spec.matrix.org/v1.18/push-gateway-api/#homeserver-behaviour
 #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/doc/string_enum.md"))]
-#[derive(Clone, PartialEq, Eq, StringEnum)]
+#[derive(Clone, StringEnum)]
 #[ruma_enum(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum PushFormat {
@@ -741,7 +780,7 @@ pub enum PushFormat {
 
 /// The kinds of push rules that are available.
 #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/doc/string_enum.md"))]
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, StringEnum)]
+#[derive(Clone, StringEnum)]
 #[ruma_enum(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum RuleKind {
@@ -760,19 +799,28 @@ pub enum RuleKind {
     /// Content-specific rules.
     Content,
 
+    /// Post-content specific rules.
+    #[cfg(feature = "unstable-msc4306")]
+    #[ruma_enum(rename = "io.element.msc4306.postcontent")]
+    PostContent,
+
     #[doc(hidden)]
     _Custom(PrivOwnedStr),
 }
 
 /// A push rule to update or create.
 #[derive(Clone, Debug)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub enum NewPushRule {
     /// Rules that override all other kinds.
     Override(NewConditionalPushRule),
 
     /// Content-specific rules.
     Content(NewPatternedPushRule),
+
+    /// Post-content specific rules.
+    #[cfg(feature = "unstable-msc4306")]
+    PostContent(NewConditionalPushRule),
 
     /// Room-specific rules.
     Room(NewSimplePushRule<OwnedRoomId>),
@@ -790,6 +838,8 @@ impl NewPushRule {
         match self {
             NewPushRule::Override(_) => RuleKind::Override,
             NewPushRule::Content(_) => RuleKind::Content,
+            #[cfg(feature = "unstable-msc4306")]
+            NewPushRule::PostContent(_) => RuleKind::PostContent,
             NewPushRule::Room(_) => RuleKind::Room,
             NewPushRule::Sender(_) => RuleKind::Sender,
             NewPushRule::Underride(_) => RuleKind::Underride,
@@ -801,6 +851,8 @@ impl NewPushRule {
         match self {
             NewPushRule::Override(r) => &r.rule_id,
             NewPushRule::Content(r) => &r.rule_id,
+            #[cfg(feature = "unstable-msc4306")]
+            NewPushRule::PostContent(r) => &r.rule_id,
             NewPushRule::Room(r) => r.rule_id.as_ref(),
             NewPushRule::Sender(r) => r.rule_id.as_ref(),
             NewPushRule::Underride(r) => &r.rule_id,
@@ -810,7 +862,7 @@ impl NewPushRule {
 
 /// A simple push rule to update or create.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct NewSimplePushRule<T> {
     /// The ID of this rule.
     ///
@@ -838,7 +890,7 @@ impl<T> From<NewSimplePushRule<T>> for SimplePushRule<T> {
 
 /// A patterned push rule to update or create.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct NewPatternedPushRule {
     /// The ID of this rule.
     pub rule_id: String,
@@ -867,7 +919,7 @@ impl From<NewPatternedPushRule> for PatternedPushRule {
 
 /// A conditional push rule to update or create.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct NewConditionalPushRule {
     /// The ID of this rule.
     pub rule_id: String,
@@ -982,26 +1034,32 @@ pub enum RemovePushRuleError {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::{collections::BTreeMap, sync::LazyLock};
 
-    use assert_matches2::assert_matches;
+    use assert_matches2::{assert_let, assert_matches};
     use js_int::{int, uint};
+    use macro_rules_attribute::apply;
     use serde_json::{
-        from_value as from_json_value, json, to_value as to_json_value,
-        value::RawValue as RawJsonValue, Value as JsonValue,
+        Value as JsonValue, from_value as from_json_value, json, value::RawValue as RawJsonValue,
     };
+    use smol_macros::test;
 
     use super::{
+        AnyPushRule, ConditionalPushRule, PatternedPushRule, Ruleset, SimplePushRule,
         action::{Action, Tweak},
         condition::{
-            PushCondition, PushConditionPowerLevelsCtx, PushConditionRoomCtx, RoomMemberCountIs,
+            EventMatchConditionData, PushCondition, PushConditionPowerLevelsCtx,
+            PushConditionRoomCtx, RoomMemberCountConditionData, RoomMemberCountIs,
+            SenderNotificationPermissionConditionData,
         },
-        AnyPushRule, ConditionalPushRule, PatternedPushRule, Ruleset, SimplePushRule,
     };
     use crate::{
-        owned_room_id, owned_user_id,
+        assert_to_canonical_json_eq, owned_room_id, owned_user_id,
         power_levels::NotificationPowerLevels,
-        push::{PredefinedContentRuleId, PredefinedOverrideRuleId},
+        push::{
+            HighlightTweakValue, PredefinedContentRuleId, PredefinedOverrideRuleId, SoundTweakValue,
+        },
+        room_version_rules::{AuthorizationRules, RoomPowerLevelsRules},
         serde::Raw,
         user_id,
     };
@@ -1010,11 +1068,14 @@ mod tests {
         let mut set = Ruleset::new();
 
         set.override_.insert(ConditionalPushRule {
-            conditions: vec![PushCondition::EventMatch {
-                key: "type".into(),
-                pattern: "m.call.invite".into(),
-            }],
-            actions: vec![Action::Notify, Action::SetTweak(Tweak::Highlight(true))],
+            conditions: vec![PushCondition::EventMatch(EventMatchConditionData::new(
+                "type".into(),
+                "m.call.invite".into(),
+            ))],
+            actions: vec![
+                Action::Notify,
+                Action::SetTweak(Tweak::Highlight(HighlightTweakValue::Yes)),
+            ],
             rule_id: ".m.rule.call".into(),
             enabled: true,
             default: true,
@@ -1028,18 +1089,41 @@ mod tests {
             users: BTreeMap::new(),
             users_default: int!(50),
             notifications: NotificationPowerLevels { room: int!(50) },
+            rules: RoomPowerLevelsRules::new(&AuthorizationRules::V1, None),
         }
     }
+
+    static CONTEXT_ONE_TO_ONE: LazyLock<PushConditionRoomCtx> = LazyLock::new(|| {
+        let mut ctx = PushConditionRoomCtx::new(
+            owned_room_id!("!dm:server.name"),
+            uint!(2),
+            owned_user_id!("@jj:server.name"),
+            "Jolly Jumper".into(),
+        );
+        ctx.power_levels = Some(power_levels());
+        ctx
+    });
+
+    static CONTEXT_PUBLIC_ROOM: LazyLock<PushConditionRoomCtx> = LazyLock::new(|| {
+        let mut ctx = PushConditionRoomCtx::new(
+            owned_room_id!("!far_west:server.name"),
+            uint!(100),
+            owned_user_id!("@jj:server.name"),
+            "Jolly Jumper".into(),
+        );
+        ctx.power_levels = Some(power_levels());
+        ctx
+    });
 
     #[test]
     fn iter() {
         let mut set = example_ruleset();
 
         let added = set.override_.insert(ConditionalPushRule {
-            conditions: vec![PushCondition::EventMatch {
-                key: "room_id".into(),
-                pattern: "!roomid:matrix.org".into(),
-            }],
+            conditions: vec![PushCondition::EventMatch(EventMatchConditionData::new(
+                "room_id".into(),
+                "!roomid:matrix.org".into(),
+            ))],
             actions: vec![],
             rule_id: "!roomid:matrix.org".into(),
             enabled: true,
@@ -1060,26 +1144,17 @@ mod tests {
 
         let rule_opt = iter.next();
         assert!(rule_opt.is_some());
-        assert_matches!(
-            rule_opt.unwrap(),
-            AnyPushRule::Override(ConditionalPushRule { rule_id, .. })
-        );
+        assert_let!(AnyPushRule::Override(ConditionalPushRule { rule_id, .. }) = rule_opt.unwrap());
         assert_eq!(rule_id, ".m.rule.call");
 
         let rule_opt = iter.next();
         assert!(rule_opt.is_some());
-        assert_matches!(
-            rule_opt.unwrap(),
-            AnyPushRule::Override(ConditionalPushRule { rule_id, .. })
-        );
+        assert_let!(AnyPushRule::Override(ConditionalPushRule { rule_id, .. }) = rule_opt.unwrap());
         assert_eq!(rule_id, "!roomid:matrix.org");
 
         let rule_opt = iter.next();
         assert!(rule_opt.is_some());
-        assert_matches!(
-            rule_opt.unwrap(),
-            AnyPushRule::Override(ConditionalPushRule { rule_id, .. })
-        );
+        assert_let!(AnyPushRule::Override(ConditionalPushRule { rule_id, .. }) = rule_opt.unwrap());
         assert_eq!(rule_id, ".m.rule.suppress_notices");
 
         assert_matches!(iter.next(), None);
@@ -1088,21 +1163,31 @@ mod tests {
     #[test]
     fn serialize_conditional_push_rule() {
         let rule = ConditionalPushRule {
-            actions: vec![Action::Notify, Action::SetTweak(Tweak::Highlight(true))],
+            actions: vec![
+                Action::Notify,
+                Action::SetTweak(Tweak::Highlight(HighlightTweakValue::Yes)),
+            ],
             default: true,
             enabled: true,
             rule_id: ".m.rule.call".into(),
             conditions: vec![
-                PushCondition::EventMatch { key: "type".into(), pattern: "m.call.invite".into() },
+                PushCondition::EventMatch(EventMatchConditionData::new(
+                    "type".into(),
+                    "m.call.invite".into(),
+                )),
+                #[allow(deprecated)]
                 PushCondition::ContainsDisplayName,
-                PushCondition::RoomMemberCount { is: RoomMemberCountIs::gt(uint!(2)) },
-                PushCondition::SenderNotificationPermission { key: "room".into() },
+                PushCondition::RoomMemberCount(RoomMemberCountConditionData::new(
+                    RoomMemberCountIs::gt(uint!(2)),
+                )),
+                PushCondition::SenderNotificationPermission(
+                    SenderNotificationPermissionConditionData::new("room".into()),
+                ),
             ],
         };
 
-        let rule_value: JsonValue = to_json_value(rule).unwrap();
-        assert_eq!(
-            rule_value,
+        assert_to_canonical_json_eq!(
+            rule,
             json!({
                 "conditions": [
                     {
@@ -1144,9 +1229,8 @@ mod tests {
             rule_id: owned_room_id!("!roomid:server.name"),
         };
 
-        let rule_value: JsonValue = to_json_value(rule).unwrap();
-        assert_eq!(
-            rule_value,
+        assert_to_canonical_json_eq!(
+            rule,
             json!({
                 "actions": [
                     "notify"
@@ -1163,11 +1247,14 @@ mod tests {
         let rule = PatternedPushRule {
             actions: vec![
                 Action::Notify,
-                Action::SetTweak(Tweak::Sound("default".into())),
-                Action::SetTweak(Tweak::Custom {
-                    name: "dance".into(),
-                    value: RawJsonValue::from_string("true".into()).unwrap(),
-                }),
+                Action::SetTweak(Tweak::Sound(SoundTweakValue::Default)),
+                Action::SetTweak(
+                    Tweak::new(
+                        "dance".into(),
+                        Some(RawJsonValue::from_string("true".into()).unwrap()),
+                    )
+                    .unwrap(),
+                ),
             ],
             default: true,
             enabled: true,
@@ -1175,9 +1262,8 @@ mod tests {
             rule_id: ".m.rule.contains_user_name".into(),
         };
 
-        let rule_value: JsonValue = to_json_value(rule).unwrap();
-        assert_eq!(
-            rule_value,
+        assert_to_canonical_json_eq!(
+            rule,
             json!({
                 "actions": [
                     "notify",
@@ -1204,13 +1290,18 @@ mod tests {
 
         set.override_.insert(ConditionalPushRule {
             conditions: vec![
-                PushCondition::RoomMemberCount { is: RoomMemberCountIs::from(uint!(2)) },
-                PushCondition::EventMatch { key: "type".into(), pattern: "m.room.message".into() },
+                PushCondition::RoomMemberCount(RoomMemberCountConditionData::new(
+                    RoomMemberCountIs::from(uint!(2)),
+                )),
+                PushCondition::EventMatch(EventMatchConditionData::new(
+                    "type".into(),
+                    "m.room.message".into(),
+                )),
             ],
             actions: vec![
                 Action::Notify,
-                Action::SetTweak(Tweak::Sound("default".into())),
-                Action::SetTweak(Tweak::Highlight(false)),
+                Action::SetTweak(Tweak::Sound(SoundTweakValue::Default)),
+                Action::SetTweak(Tweak::Highlight(HighlightTweakValue::No)),
             ],
             rule_id: ".m.rule.room_one_to_one".into(),
             enabled: true,
@@ -1219,8 +1310,8 @@ mod tests {
         set.content.insert(PatternedPushRule {
             actions: vec![
                 Action::Notify,
-                Action::SetTweak(Tweak::Sound("default".into())),
-                Action::SetTweak(Tweak::Highlight(true)),
+                Action::SetTweak(Tweak::Sound(SoundTweakValue::Default)),
+                Action::SetTweak(Tweak::Highlight(HighlightTweakValue::Yes)),
             ],
             rule_id: ".m.rule.contains_user_name".into(),
             pattern: "user_id".into(),
@@ -1228,9 +1319,8 @@ mod tests {
             default: true,
         });
 
-        let set_value: JsonValue = to_json_value(set).unwrap();
-        assert_eq!(
-            set_value,
+        assert_to_canonical_json_eq!(
+            set,
             json!({
                 "override": [
                     {
@@ -1328,9 +1418,14 @@ mod tests {
 
         let mut iter = rule.actions.iter();
         assert_matches!(iter.next(), Some(Action::Notify));
-        assert_matches!(iter.next(), Some(Action::SetTweak(Tweak::Sound(sound))));
-        assert_eq!(sound, "default");
-        assert_matches!(iter.next(), Some(Action::SetTweak(Tweak::Highlight(true))));
+        assert_matches!(
+            iter.next(),
+            Some(Action::SetTweak(Tweak::Sound(SoundTweakValue::Default)))
+        );
+        assert_matches!(
+            iter.next(),
+            Some(Action::SetTweak(Tweak::Highlight(HighlightTweakValue::Yes)))
+        );
         assert_matches!(iter.next(), None);
     }
 
@@ -1394,69 +1489,42 @@ mod tests {
 
         let rule_opt = iter.next();
         assert!(rule_opt.is_some());
-        assert_matches!(
-            rule_opt.unwrap(),
-            AnyPushRule::Override(ConditionalPushRule { rule_id, .. })
-        );
+        assert_let!(AnyPushRule::Override(ConditionalPushRule { rule_id, .. }) = rule_opt.unwrap());
         assert_eq!(rule_id, "!roomid:server.name");
 
         let rule_opt = iter.next();
         assert!(rule_opt.is_some());
-        assert_matches!(
-            rule_opt.unwrap(),
-            AnyPushRule::Override(ConditionalPushRule { rule_id, .. })
-        );
+        assert_let!(AnyPushRule::Override(ConditionalPushRule { rule_id, .. }) = rule_opt.unwrap());
         assert_eq!(rule_id, ".m.rule.call");
 
         let rule_opt = iter.next();
         assert!(rule_opt.is_some());
-        assert_matches!(rule_opt.unwrap(), AnyPushRule::Content(PatternedPushRule { rule_id, .. }));
+        assert_let!(AnyPushRule::Content(PatternedPushRule { rule_id, .. }) = rule_opt.unwrap());
         assert_eq!(rule_id, ".m.rule.contains_user_name");
 
         let rule_opt = iter.next();
         assert!(rule_opt.is_some());
-        assert_matches!(rule_opt.unwrap(), AnyPushRule::Content(PatternedPushRule { rule_id, .. }));
+        assert_let!(AnyPushRule::Content(PatternedPushRule { rule_id, .. }) = rule_opt.unwrap());
         assert_eq!(rule_id, "ruma");
 
         let rule_opt = iter.next();
         assert!(rule_opt.is_some());
-        assert_matches!(rule_opt.unwrap(), AnyPushRule::Room(SimplePushRule { rule_id, .. }));
+        assert_let!(AnyPushRule::Room(SimplePushRule { rule_id, .. }) = rule_opt.unwrap());
         assert_eq!(rule_id, "!roomid:server.name");
 
         let rule_opt = iter.next();
         assert!(rule_opt.is_some());
-        assert_matches!(
-            rule_opt.unwrap(),
-            AnyPushRule::Underride(ConditionalPushRule { rule_id, .. })
+        assert_let!(
+            AnyPushRule::Underride(ConditionalPushRule { rule_id, .. }) = rule_opt.unwrap()
         );
         assert_eq!(rule_id, ".m.rule.room_one_to_one");
 
         assert_matches!(iter.next(), None);
     }
 
-    #[test]
-    fn default_ruleset_applies() {
-        let set = Ruleset::server_default(user_id!("@jolly_jumper:server.name"));
-
-        let context_one_to_one = &PushConditionRoomCtx {
-            room_id: owned_room_id!("!dm:server.name"),
-            member_count: uint!(2),
-            user_id: owned_user_id!("@jj:server.name"),
-            user_display_name: "Jolly Jumper".into(),
-            power_levels: Some(power_levels()),
-            #[cfg(feature = "unstable-msc3931")]
-            supported_features: Default::default(),
-        };
-
-        let context_public_room = &PushConditionRoomCtx {
-            room_id: owned_room_id!("!far_west:server.name"),
-            member_count: uint!(100),
-            user_id: owned_user_id!("@jj:server.name"),
-            user_display_name: "Jolly Jumper".into(),
-            power_levels: Some(power_levels()),
-            #[cfg(feature = "unstable-msc3931")]
-            supported_features: Default::default(),
-        };
+    #[apply(test!)]
+    async fn default_ruleset_applies() {
+        let set = Ruleset::server_default(user_id!("@jj:server.name"));
 
         let message = serde_json::from_str::<Raw<JsonValue>>(
             r#"{
@@ -1466,42 +1534,38 @@ mod tests {
         .unwrap();
 
         assert_matches!(
-            set.get_actions(&message, context_one_to_one),
-            [
-                Action::Notify,
-                Action::SetTweak(Tweak::Sound(_)),
-                Action::SetTweak(Tweak::Highlight(false))
-            ]
+            set.get_actions(&message, &CONTEXT_ONE_TO_ONE).await,
+            [Action::Notify, Action::SetTweak(Tweak::Sound(_)),]
         );
-        assert_matches!(
-            set.get_actions(&message, context_public_room),
-            [Action::Notify, Action::SetTweak(Tweak::Highlight(false))]
-        );
+        assert_matches!(set.get_actions(&message, &CONTEXT_PUBLIC_ROOM).await, [Action::Notify]);
 
-        let user_name = serde_json::from_str::<Raw<JsonValue>>(
+        let user_mention = serde_json::from_str::<Raw<JsonValue>>(
             r#"{
                 "type": "m.room.message",
                 "content": {
-                    "body": "Hi jolly_jumper!"
+                    "body": "Hi jolly_jumper!",
+                    "m.mentions": {
+                        "user_ids": ["@jj:server.name"]
+                    }
                 }
             }"#,
         )
         .unwrap();
 
         assert_matches!(
-            set.get_actions(&user_name, context_one_to_one),
+            set.get_actions(&user_mention, &CONTEXT_ONE_TO_ONE).await,
             [
                 Action::Notify,
                 Action::SetTweak(Tweak::Sound(_)),
-                Action::SetTweak(Tweak::Highlight(true)),
+                Action::SetTweak(Tweak::Highlight(HighlightTweakValue::Yes)),
             ]
         );
         assert_matches!(
-            set.get_actions(&user_name, context_public_room),
+            set.get_actions(&user_mention, &CONTEXT_PUBLIC_ROOM).await,
             [
                 Action::Notify,
                 Action::SetTweak(Tweak::Sound(_)),
-                Action::SetTweak(Tweak::Highlight(true)),
+                Action::SetTweak(Tweak::Highlight(HighlightTweakValue::Yes)),
             ]
         );
 
@@ -1514,41 +1578,34 @@ mod tests {
             }"#,
         )
         .unwrap();
-        assert_matches!(set.get_actions(&notice, context_one_to_one), []);
+        assert_matches!(set.get_actions(&notice, &CONTEXT_ONE_TO_ONE).await, []);
 
-        let at_room = serde_json::from_str::<Raw<JsonValue>>(
+        let room_mention = serde_json::from_str::<Raw<JsonValue>>(
             r#"{
                 "type": "m.room.message",
                 "sender": "@rantanplan:server.name",
                 "content": {
                     "body": "@room Attention please!",
-                    "msgtype": "m.text"
+                    "msgtype": "m.text",
+                    "m.mentions": {
+                        "room": true
+                    }
                 }
             }"#,
         )
         .unwrap();
 
         assert_matches!(
-            set.get_actions(&at_room, context_public_room),
-            [Action::Notify, Action::SetTweak(Tweak::Highlight(true)),]
+            set.get_actions(&room_mention, &CONTEXT_PUBLIC_ROOM).await,
+            [Action::Notify, Action::SetTweak(Tweak::Highlight(HighlightTweakValue::Yes))]
         );
 
         let empty = serde_json::from_str::<Raw<JsonValue>>(r#"{}"#).unwrap();
-        assert_matches!(set.get_actions(&empty, context_one_to_one), []);
+        assert_matches!(set.get_actions(&empty, &CONTEXT_ONE_TO_ONE).await, []);
     }
 
-    #[test]
-    fn custom_ruleset_applies() {
-        let context_one_to_one = &PushConditionRoomCtx {
-            room_id: owned_room_id!("!dm:server.name"),
-            member_count: uint!(2),
-            user_id: owned_user_id!("@jj:server.name"),
-            user_display_name: "Jolly Jumper".into(),
-            power_levels: Some(power_levels()),
-            #[cfg(feature = "unstable-msc3931")]
-            supported_features: Default::default(),
-        };
-
+    #[apply(test!)]
+    async fn custom_ruleset_applies() {
         let message = serde_json::from_str::<Raw<JsonValue>>(
             r#"{
                 "sender": "@rantanplan:server.name",
@@ -1567,17 +1624,17 @@ mod tests {
             default: false,
             enabled: false,
             rule_id: "disabled".into(),
-            conditions: vec![PushCondition::RoomMemberCount {
-                is: RoomMemberCountIs::from(uint!(2)),
-            }],
+            conditions: vec![PushCondition::RoomMemberCount(RoomMemberCountConditionData::new(
+                RoomMemberCountIs::from(uint!(2)),
+            ))],
         };
         set.underride.insert(disabled);
 
         let test_set = set.clone();
-        assert_matches!(test_set.get_actions(&message, context_one_to_one), []);
+        assert_matches!(test_set.get_actions(&message, &CONTEXT_ONE_TO_ONE).await, []);
 
         let no_conditions = ConditionalPushRule {
-            actions: vec![Action::SetTweak(Tweak::Highlight(true))],
+            actions: vec![Action::SetTweak(Tweak::Highlight(HighlightTweakValue::Yes))],
             default: false,
             enabled: true,
             rule_id: "no.conditions".into(),
@@ -1587,8 +1644,8 @@ mod tests {
 
         let test_set = set.clone();
         assert_matches!(
-            test_set.get_actions(&message, context_one_to_one),
-            [Action::SetTweak(Tweak::Highlight(true))]
+            test_set.get_actions(&message, &CONTEXT_ONE_TO_ONE).await,
+            [Action::SetTweak(Tweak::Highlight(HighlightTweakValue::Yes))]
         );
 
         let sender = SimplePushRule {
@@ -1600,10 +1657,13 @@ mod tests {
         set.sender.insert(sender);
 
         let test_set = set.clone();
-        assert_matches!(test_set.get_actions(&message, context_one_to_one), [Action::Notify]);
+        assert_matches!(
+            test_set.get_actions(&message, &CONTEXT_ONE_TO_ONE).await,
+            [Action::Notify]
+        );
 
         let room = SimplePushRule {
-            actions: vec![Action::SetTweak(Tweak::Highlight(true))],
+            actions: vec![Action::SetTweak(Tweak::Highlight(HighlightTweakValue::Yes))],
             default: false,
             enabled: true,
             rule_id: owned_room_id!("!dm:server.name"),
@@ -1612,8 +1672,8 @@ mod tests {
 
         let test_set = set.clone();
         assert_matches!(
-            test_set.get_actions(&message, context_one_to_one),
-            [Action::SetTweak(Tweak::Highlight(true))]
+            test_set.get_actions(&message, &CONTEXT_ONE_TO_ONE).await,
+            [Action::SetTweak(Tweak::Highlight(HighlightTweakValue::Yes))]
         );
 
         let content = PatternedPushRule {
@@ -1627,10 +1687,10 @@ mod tests {
 
         let test_set = set.clone();
         assert_matches!(
-            test_set.get_actions(&message, context_one_to_one),
+            test_set.get_actions(&message, &CONTEXT_ONE_TO_ONE).await,
             [Action::SetTweak(Tweak::Sound(sound))]
         );
-        assert_eq!(sound, "content");
+        assert_eq!(sound.as_str(), "content");
 
         let three_conditions = ConditionalPushRule {
             actions: vec![Action::SetTweak(Tweak::Sound("three".into()))],
@@ -1638,21 +1698,24 @@ mod tests {
             enabled: true,
             rule_id: "three.conditions".into(),
             conditions: vec![
-                PushCondition::RoomMemberCount { is: RoomMemberCountIs::from(uint!(2)) },
+                PushCondition::RoomMemberCount(RoomMemberCountConditionData::new(
+                    RoomMemberCountIs::from(uint!(2)),
+                )),
+                #[allow(deprecated)]
                 PushCondition::ContainsDisplayName,
-                PushCondition::EventMatch {
-                    key: "room_id".into(),
-                    pattern: "!dm:server.name".into(),
-                },
+                PushCondition::EventMatch(EventMatchConditionData::new(
+                    "room_id".into(),
+                    "!dm:server.name".into(),
+                )),
             ],
         };
         set.override_.insert(three_conditions);
 
         assert_matches!(
-            set.get_actions(&message, context_one_to_one),
+            set.get_actions(&message, &CONTEXT_ONE_TO_ONE).await,
             [Action::SetTweak(Tweak::Sound(sound))]
         );
-        assert_eq!(sound, "content");
+        assert_eq!(sound.as_str(), "content");
 
         let new_message = serde_json::from_str::<Raw<JsonValue>>(
             r#"{
@@ -1667,26 +1730,58 @@ mod tests {
         .unwrap();
 
         assert_matches!(
-            set.get_actions(&new_message, context_one_to_one),
+            set.get_actions(&new_message, &CONTEXT_ONE_TO_ONE).await,
             [Action::SetTweak(Tweak::Sound(sound))]
         );
-        assert_eq!(sound, "three");
+        assert_eq!(sound.as_str(), "three");
     }
 
-    #[test]
+    #[apply(test!)]
     #[allow(deprecated)]
-    fn old_mentions_apply() {
-        let set = Ruleset::server_default(user_id!("@jolly_jumper:server.name"));
-
-        let context = &PushConditionRoomCtx {
-            room_id: owned_room_id!("!far_west:server.name"),
-            member_count: uint!(100),
-            user_id: owned_user_id!("@jj:server.name"),
-            user_display_name: "Jolly Jumper".into(),
-            power_levels: Some(power_levels()),
-            #[cfg(feature = "unstable-msc3931")]
-            supported_features: Default::default(),
-        };
+    async fn old_mentions_apply() {
+        let mut set = Ruleset::new();
+        set.content.insert(PatternedPushRule {
+            rule_id: PredefinedContentRuleId::ContainsUserName.to_string(),
+            enabled: true,
+            default: true,
+            pattern: "jolly_jumper".to_owned(),
+            actions: vec![
+                Action::Notify,
+                Action::SetTweak(Tweak::Sound(SoundTweakValue::Default)),
+                Action::SetTweak(Tweak::Highlight(HighlightTweakValue::Yes)),
+            ],
+        });
+        set.override_.extend([
+            ConditionalPushRule {
+                actions: vec![
+                    Action::Notify,
+                    Action::SetTweak(Tweak::Sound(SoundTweakValue::Default)),
+                    Action::SetTweak(Tweak::Highlight(HighlightTweakValue::Yes)),
+                ],
+                default: true,
+                enabled: true,
+                rule_id: PredefinedOverrideRuleId::ContainsDisplayName.to_string(),
+                conditions: vec![PushCondition::ContainsDisplayName],
+            },
+            ConditionalPushRule {
+                actions: vec![
+                    Action::Notify,
+                    Action::SetTweak(Tweak::Highlight(HighlightTweakValue::Yes)),
+                ],
+                default: true,
+                enabled: true,
+                rule_id: PredefinedOverrideRuleId::RoomNotif.to_string(),
+                conditions: vec![
+                    PushCondition::EventMatch(EventMatchConditionData::new(
+                        "content.body".into(),
+                        "@room".into(),
+                    )),
+                    PushCondition::SenderNotificationPermission(
+                        SenderNotificationPermissionConditionData::new("room".into()),
+                    ),
+                ],
+            },
+        ]);
 
         let message = serde_json::from_str::<Raw<JsonValue>>(
             r#"{
@@ -1699,7 +1794,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            set.get_match(&message, context).unwrap().rule_id(),
+            set.get_match(&message, &CONTEXT_PUBLIC_ROOM).await.unwrap().rule_id(),
             PredefinedContentRuleId::ContainsUserName.as_ref()
         );
 
@@ -1714,9 +1809,9 @@ mod tests {
         )
         .unwrap();
 
-        assert_ne!(
-            set.get_match(&message, context).unwrap().rule_id(),
-            PredefinedContentRuleId::ContainsUserName.as_ref()
+        assert_eq!(
+            set.get_match(&message, &CONTEXT_PUBLIC_ROOM).await.map(|rule| rule.rule_id()),
+            None
         );
 
         let message = serde_json::from_str::<Raw<JsonValue>>(
@@ -1730,7 +1825,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            set.get_match(&message, context).unwrap().rule_id(),
+            set.get_match(&message, &CONTEXT_PUBLIC_ROOM).await.unwrap().rule_id(),
             PredefinedOverrideRuleId::ContainsDisplayName.as_ref()
         );
 
@@ -1745,9 +1840,9 @@ mod tests {
         )
         .unwrap();
 
-        assert_ne!(
-            set.get_match(&message, context).unwrap().rule_id(),
-            PredefinedOverrideRuleId::ContainsDisplayName.as_ref()
+        assert_eq!(
+            set.get_match(&message, &CONTEXT_PUBLIC_ROOM).await.map(|rule| rule.rule_id()),
+            None
         );
 
         let message = serde_json::from_str::<Raw<JsonValue>>(
@@ -1762,7 +1857,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            set.get_match(&message, context).unwrap().rule_id(),
+            set.get_match(&message, &CONTEXT_PUBLIC_ROOM).await.unwrap().rule_id(),
             PredefinedOverrideRuleId::RoomNotif.as_ref()
         );
 
@@ -1778,25 +1873,15 @@ mod tests {
         )
         .unwrap();
 
-        assert_ne!(
-            set.get_match(&message, context).unwrap().rule_id(),
-            PredefinedOverrideRuleId::RoomNotif.as_ref()
+        assert_eq!(
+            set.get_match(&message, &CONTEXT_PUBLIC_ROOM).await.map(|rule| rule.rule_id()),
+            None
         );
     }
 
-    #[test]
-    fn intentional_mentions_apply() {
+    #[apply(test!)]
+    async fn intentional_mentions_apply() {
         let set = Ruleset::server_default(user_id!("@jolly_jumper:server.name"));
-
-        let context = &PushConditionRoomCtx {
-            room_id: owned_room_id!("!far_west:server.name"),
-            member_count: uint!(100),
-            user_id: owned_user_id!("@jj:server.name"),
-            user_display_name: "Jolly Jumper".into(),
-            power_levels: Some(power_levels()),
-            #[cfg(feature = "unstable-msc3931")]
-            supported_features: Default::default(),
-        };
 
         let message = serde_json::from_str::<Raw<JsonValue>>(
             r#"{
@@ -1813,7 +1898,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            set.get_match(&message, context).unwrap().rule_id(),
+            set.get_match(&message, &CONTEXT_PUBLIC_ROOM).await.unwrap().rule_id(),
             PredefinedOverrideRuleId::IsUserMention.as_ref()
         );
 
@@ -1832,25 +1917,22 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            set.get_match(&message, context).unwrap().rule_id(),
+            set.get_match(&message, &CONTEXT_PUBLIC_ROOM).await.unwrap().rule_id(),
             PredefinedOverrideRuleId::IsRoomMention.as_ref()
         );
     }
 
-    #[test]
-    fn invite_for_me_applies() {
+    #[apply(test!)]
+    async fn invite_for_me_applies() {
         let set = Ruleset::server_default(user_id!("@jolly_jumper:server.name"));
 
-        let context = &PushConditionRoomCtx {
-            room_id: owned_room_id!("!far_west:server.name"),
-            member_count: uint!(100),
-            user_id: owned_user_id!("@jj:server.name"),
-            user_display_name: "Jolly Jumper".into(),
-            // `invite_state` usually doesn't include the power levels.
-            power_levels: None,
-            #[cfg(feature = "unstable-msc3931")]
-            supported_features: Default::default(),
-        };
+        // `invite_state` usually doesn't include the power levels.
+        let context = PushConditionRoomCtx::new(
+            owned_room_id!("!far_west:server.name"),
+            uint!(100),
+            owned_user_id!("@jj:server.name"),
+            "Jolly Jumper".into(),
+        );
 
         let message = serde_json::from_str::<Raw<JsonValue>>(
             r#"{
@@ -1865,7 +1947,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            set.get_match(&message, context).unwrap().rule_id(),
+            set.get_match(&message, &context).await.unwrap().rule_id(),
             PredefinedOverrideRuleId::InviteForMe.as_ref()
         );
     }

@@ -5,41 +5,40 @@
 pub mod v3 {
     //! `/v3/` ([spec])
     //!
-    //! [spec]: https://spec.matrix.org/latest/client-server-api/#get_matrixclientv3thirdpartylocationprotocol
+    //! [spec]: https://spec.matrix.org/v1.18/client-server-api/#get_matrixclientv3thirdpartylocationprotocol
 
     use std::collections::BTreeMap;
 
     use ruma_common::{
-        api::{request, response, Metadata},
+        api::{auth_scheme::AccessToken, request, response},
         metadata,
         thirdparty::Location,
     };
 
-    const METADATA: Metadata = metadata! {
+    metadata! {
         method: GET,
         rate_limited: false,
         authentication: AccessToken,
         history: {
-            1.0 => "/_matrix/client/r0/thirdparty/location/:protocol",
-            1.1 => "/_matrix/client/v3/thirdparty/location/:protocol",
+            1.0 => "/_matrix/client/r0/thirdparty/location/{protocol}",
+            1.1 => "/_matrix/client/v3/thirdparty/location/{protocol}",
         }
-    };
+    }
 
     /// Request type for the `get_location_for_protocol` endpoint.
-    #[request(error = crate::Error)]
+    #[request]
     pub struct Request {
         /// The protocol used to communicate to the third party network.
         #[ruma_api(path)]
         pub protocol: String,
 
         /// One or more custom fields to help identify the third party location.
-        // The specification is incorrect for this parameter. See [matrix-spec#560](https://github.com/matrix-org/matrix-spec/issues/560).
         #[ruma_api(query_all)]
         pub fields: BTreeMap<String, String>,
     }
 
     /// Response type for the `get_location_for_protocol` endpoint.
-    #[response(error = crate::Error)]
+    #[response]
     pub struct Response {
         /// List of matched third party locations.
         #[ruma_api(body)]

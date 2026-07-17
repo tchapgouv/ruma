@@ -1,6 +1,6 @@
 //! Common types for the [third party networks module][thirdparty].
 //!
-//! [thirdparty]: https://spec.matrix.org/latest/client-server-api/#third-party-networks
+//! [thirdparty]: https://spec.matrix.org/v1.18/client-server-api/#third-party-networks
 
 use std::{
     collections::BTreeMap,
@@ -10,16 +10,16 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    serde::StringEnum, MilliSecondsSinceUnixEpoch, OwnedRoomAliasId, OwnedUserId, PrivOwnedStr,
+    MilliSecondsSinceUnixEpoch, OwnedRoomAliasId, OwnedUserId, PrivOwnedStr, serde::StringEnum,
 };
 
 /// Metadata about a third party protocol.
 ///
-/// To create an instance of this type, first create a `ProtocolInit` and convert it via
+/// To create an instance of this type, first create a [`ProtocolInit`] and convert it via
 /// `Protocol::from` / `.into()`.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
-pub struct Protocol {
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
+pub struct Protocol<I = ProtocolInstance> {
     /// Fields which may be used to identify a third party user.
     pub user_fields: Vec<String>,
 
@@ -37,16 +37,30 @@ pub struct Protocol {
     pub field_types: BTreeMap<String, FieldType>,
 
     /// A list of objects representing independent instances of configuration.
-    pub instances: Vec<ProtocolInstance>,
+    pub instances: Vec<I>,
 }
 
-/// Initial set of fields of `Protocol`.
+impl<I> Protocol<I> {
+    /// Convert this `Protocol<I>` to a `Protocol<J>`.
+    pub fn into<J: From<I>>(self) -> Protocol<J> {
+        let Self { user_fields, location_fields, icon, field_types, instances } = self;
+        Protocol {
+            user_fields,
+            location_fields,
+            icon,
+            field_types,
+            instances: instances.into_iter().map(J::from).collect(),
+        }
+    }
+}
+
+/// Initial set of fields of [`Protocol`].
 ///
-/// This struct will not be updated even if additional fields are added to `Prococol` in a new
-/// (non-breaking) release of the Matrix specification.
+/// This struct will not be updated even if additional fields are added to [`Protocol`] in
+/// a new (non-breaking) release of the Matrix specification.
 #[derive(Debug)]
 #[allow(clippy::exhaustive_structs)]
-pub struct ProtocolInit {
+pub struct ProtocolInit<I = ProtocolInstance> {
     /// Fields which may be used to identify a third party user.
     pub user_fields: Vec<String>,
 
@@ -60,22 +74,22 @@ pub struct ProtocolInit {
     pub field_types: BTreeMap<String, FieldType>,
 
     /// A list of objects representing independent instances of configuration.
-    pub instances: Vec<ProtocolInstance>,
+    pub instances: Vec<I>,
 }
 
-impl From<ProtocolInit> for Protocol {
-    fn from(init: ProtocolInit) -> Self {
+impl<I> From<ProtocolInit<I>> for Protocol<I> {
+    fn from(init: ProtocolInit<I>) -> Self {
         let ProtocolInit { user_fields, location_fields, icon, field_types, instances } = init;
         Self { user_fields, location_fields, icon, field_types, instances }
     }
 }
 
-/// Metadata about an instance of a third party protocol.
+/// Metadata about an instance of a third party protocol, as returned by a homeserver to a client.
 ///
-/// To create an instance of this type, first create a `ProtocolInstanceInit` and convert it via
-/// `ProtocolInstance::from` / `.into()`.
+/// To create an instance of this type, first create a [`ProtocolInstanceInit`] or an
+/// `AppserviceProtocolInstance` and convert it via `ProtocolInstance::from` / `.into()`.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct ProtocolInstance {
     /// A human-readable description for the protocol, such as the name.
     pub desc: String,
@@ -90,18 +104,21 @@ pub struct ProtocolInstance {
     /// A unique identifier across all instances.
     pub network_id: String,
 
-    /// A unique identifier across all instances.
+    /// A unique identifier for this instance on the homeserver.
     ///
-    /// See [matrix-spec#833](https://github.com/matrix-org/matrix-spec/issues/833).
-    #[cfg(feature = "unstable-unspecified")]
+    /// This is a field added by the homeserver to `AppserviceProtocolInstance`. It can be used as
+    /// the value of [`RoomNetwork::ThirdParty`] in a request to the `get_public_rooms_filtered`
+    /// endpoint.
+    ///
+    /// [`RoomNetwork::ThirdParty`]: crate::directory::RoomNetwork::ThirdParty
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instance_id: Option<String>,
 }
 
-/// Initial set of fields of `Protocol`.
+/// Initial set of fields of [`ProtocolInstance`].
 ///
-/// This struct will not be updated even if additional fields are added to `Prococol` in a new
-/// (non-breaking) release of the Matrix specification.
+/// This struct will not be updated even if additional fields are added to [`ProtocolInstance`] in a
+/// new (non-breaking) release of the Matrix specification.
 #[derive(Debug)]
 #[allow(clippy::exhaustive_structs)]
 pub struct ProtocolInstanceInit {
@@ -118,14 +135,7 @@ pub struct ProtocolInstanceInit {
 impl From<ProtocolInstanceInit> for ProtocolInstance {
     fn from(init: ProtocolInstanceInit) -> Self {
         let ProtocolInstanceInit { desc, fields, network_id } = init;
-        Self {
-            desc,
-            icon: None,
-            fields,
-            network_id,
-            #[cfg(feature = "unstable-unspecified")]
-            instance_id: None,
-        }
+        Self { desc, icon: None, fields, network_id, instance_id: None }
     }
 }
 
@@ -134,7 +144,7 @@ impl From<ProtocolInstanceInit> for ProtocolInstance {
 /// To create an instance of this type, first create a `FieldTypeInit` and convert it via
 /// `FieldType::from` / `.into()`.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct FieldType {
     /// A regular expression for validation of a field's value.
     pub regexp: String,
@@ -166,7 +176,7 @@ impl From<FieldTypeInit> for FieldType {
 
 /// A third party network location.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct Location {
     /// An alias for a matrix room.
     pub alias: OwnedRoomAliasId,
@@ -191,7 +201,7 @@ impl Location {
 
 /// A third party network user.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct User {
     /// A matrix user ID representing a third party user.
     pub userid: OwnedUserId,
@@ -212,7 +222,7 @@ impl User {
 
 /// The medium of a third party identifier.
 #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/doc/string_enum.md"))]
-#[derive(Clone, PartialEq, Eq, StringEnum)]
+#[derive(Clone, StringEnum)]
 #[ruma_enum(rename_all = "lowercase")]
 #[non_exhaustive]
 pub enum Medium {
@@ -231,7 +241,7 @@ pub enum Medium {
 /// To create an instance of this type, first create a `ThirdPartyIdentifierInit` and convert it to
 /// this type using `ThirdPartyIdentifier::Init` / `.into()`.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct ThirdPartyIdentifier {
     /// The third party identifier address.
     pub address: String,
@@ -289,10 +299,10 @@ impl From<ThirdPartyIdentifierInit> for ThirdPartyIdentifier {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::{from_value as from_json_value, json, to_value as to_json_value};
+    use serde_json::{from_value as from_json_value, json};
 
     use super::{Medium, ThirdPartyIdentifier};
-    use crate::MilliSecondsSinceUnixEpoch;
+    use crate::{MilliSecondsSinceUnixEpoch, assert_to_canonical_json_eq};
 
     #[test]
     fn third_party_identifier_serde() {
@@ -310,7 +320,7 @@ mod tests {
             "added_at": 1_535_336_848_756_u64
         });
 
-        assert_eq!(to_json_value(third_party_id.clone()).unwrap(), third_party_id_serialized);
+        assert_to_canonical_json_eq!(third_party_id, third_party_id_serialized.clone());
         assert_eq!(third_party_id, from_json_value(third_party_id_serialized).unwrap());
     }
 }

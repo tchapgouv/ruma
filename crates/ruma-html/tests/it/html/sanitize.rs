@@ -233,13 +233,12 @@ fn strict_mode_class_remove() {
 #[test]
 fn strict_mode_depth_remove() {
     let config = SanitizerConfig::strict();
-    let deeply_nested_html: String = std::iter::repeat("<div>")
-        .take(100)
+    let deeply_nested_html: String = std::iter::repeat_n("<div>", 100)
         .chain(Some(
             "<span>I am in too deep!</span>\
              I should be fine.",
         ))
-        .chain(std::iter::repeat("</div>").take(100))
+        .chain(std::iter::repeat_n("</div>", 100))
         .collect();
 
     let html = Html::parse(&deeply_nested_html);
@@ -845,5 +844,34 @@ fn remove_classes() {
         "\
         <code class=\"language-html\">&lt;mx-reply&gt;This is a fake reply&lt;/mx-reply&gt;</code>\
         "
+    );
+}
+
+#[cfg(feature = "unstable-msc4286")]
+#[test]
+fn strict_mode_external_payment_details() {
+    let config = SanitizerConfig::strict().remove_reply_fallback();
+    let html = Html::parse(
+        "\
+        <p>\
+        some text here\
+        <span data-msc4286-external-payment-details=\"foo\">\
+        <a href=\"https://example.com\">link</a>\
+        </span>\
+        </p>\
+        ",
+    );
+    html.sanitize_with(&config);
+
+    assert_eq!(
+        html.to_string(),
+        "\
+        <p>\
+        some text here\
+        <span data-msc4286-external-payment-details=\"foo\">\
+        <a href=\"https://example.com\">link</a>\
+        </span>\
+        </p>\
+        ",
     );
 }

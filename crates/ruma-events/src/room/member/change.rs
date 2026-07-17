@@ -12,7 +12,7 @@ pub struct MembershipDetails<'a> {
 
 /// Translation of the membership change in `m.room.member` event.
 #[derive(Clone, Debug)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub enum MembershipChange<'a> {
     /// No change.
     None,
@@ -88,11 +88,7 @@ pub struct Change<T> {
 
 impl<T: PartialEq> Change<T> {
     fn new(old: T, new: T) -> Option<Self> {
-        if old == new {
-            None
-        } else {
-            Some(Self { old, new })
-        }
+        if old == new { None } else { Some(Self { old, new }) }
     }
 }
 
@@ -101,7 +97,7 @@ impl<T: PartialEq> Change<T> {
 ///
 /// This must match the table for [`m.room.member`] in the spec.
 ///
-/// [`m.room.member`]: https://spec.matrix.org/latest/client-server-api/#mroommember
+/// [`m.room.member`]: https://spec.matrix.org/v1.18/client-server-api/#mroommember
 pub(super) fn membership_change<'a>(
     details: MembershipDetails<'a>,
     prev_details: Option<MembershipDetails<'a>>,
@@ -117,7 +113,10 @@ pub(super) fn membership_change<'a>(
     };
 
     match (&prev_details.membership, &details.membership) {
-        (St::Leave, St::Join) => Ch::Joined,
+        (St::Leave, St::Join)
+        // This transition is legal if the join rule is knock_restricted, or if it changes from
+        // knock to public or restricted.
+        | (St::Knock, St::Join) => Ch::Joined,
         (St::Invite, St::Join) => Ch::InvitationAccepted,
         (St::Invite, St::Leave) if sender == state_key => Ch::InvitationRejected,
         (St::Invite, St::Leave) => Ch::InvitationRevoked,
@@ -127,8 +126,7 @@ pub(super) fn membership_change<'a>(
         | (St::Ban, St::Join)
         | (St::Join, St::Knock)
         | (St::Invite, St::Knock)
-        | (St::Ban, St::Knock)
-        | (St::Knock, St::Join) => Ch::Error,
+        | (St::Ban, St::Knock) => Ch::Error,
         (St::Join, St::Join)
             if sender == state_key
                 && (prev_details.displayname != details.displayname

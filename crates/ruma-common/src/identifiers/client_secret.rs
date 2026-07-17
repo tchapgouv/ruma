@@ -1,6 +1,6 @@
 //! Client secret identifier.
 
-use ruma_macros::IdZst;
+use ruma_macros::IdDst;
 
 /// A client secret.
 ///
@@ -11,7 +11,7 @@ use ruma_macros::IdZst;
 /// use `ClientSecret::new()` to generate a random one. If that function is not available for you,
 /// you need to activate this crate's `rand` Cargo feature.
 #[repr(transparent)]
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, IdZst)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, IdDst)]
 #[ruma_id(validate = ruma_identifiers_validation::client_secret::validate)]
 pub struct ClientSecret(str);
 
@@ -24,7 +24,7 @@ impl ClientSecret {
     #[allow(clippy::new_ret_no_self)]
     pub fn new() -> OwnedClientSecret {
         let id = uuid::Uuid::new_v4();
-        ClientSecret::from_borrowed(&id.simple().to_string()).to_owned()
+        OwnedClientSecret::from_string_unchecked(id.simple().to_string())
     }
 }
 

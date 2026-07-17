@@ -5,23 +5,23 @@
 pub mod v2 {
     //! `/v2/` ([spec])
     //!
-    //! [spec]: https://spec.matrix.org/latest/identity-service-api/#get_matrixidentityv2pubkeykeyid
+    //! [spec]: https://spec.matrix.org/v1.18/identity-service-api/#get_matrixidentityv2pubkeykeyid
 
     use ruma_common::{
-        api::{request, response, Metadata},
-        metadata,
-        serde::Base64,
         OwnedServerSigningKeyId,
+        api::{auth_scheme::NoAccessToken, request, response},
+        metadata,
+        third_party_invite::IdentityServerBase64PublicKey,
     };
 
-    const METADATA: Metadata = metadata! {
+    metadata! {
         method: GET,
         rate_limited: false,
-        authentication: None,
+        authentication: NoAccessToken,
         history: {
-            1.0 => "/_matrix/identity/v2/pubkey/:key_id",
+            1.0 => "/_matrix/identity/v2/pubkey/{key_id}",
         }
-    };
+    }
 
     /// Request type for the `get_public_key` endpoint.
     #[request]
@@ -35,7 +35,7 @@ pub mod v2 {
     #[response]
     pub struct Response {
         /// Unpadded base64-encoded public key.
-        pub public_key: Base64,
+        pub public_key: IdentityServerBase64PublicKey,
     }
 
     impl Request {
@@ -47,7 +47,7 @@ pub mod v2 {
 
     impl Response {
         /// Create a `Response` with the given base64-encoded (unpadded) public key.
-        pub fn new(public_key: Base64) -> Self {
+        pub fn new(public_key: IdentityServerBase64PublicKey) -> Self {
             Self { public_key }
         }
     }

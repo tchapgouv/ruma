@@ -2,10 +2,10 @@
 
 use std::hint::unreachable_unchecked;
 
-use ruma_macros::IdZst;
+use ruma_macros::IdDst;
 use tracing::warn;
 
-use super::{server_name::ServerName, OwnedRoomAliasId, OwnedRoomId, RoomAliasId, RoomId};
+use super::{OwnedRoomAliasId, OwnedRoomId, RoomAliasId, RoomId, server_name::ServerName};
 
 /// A Matrix [room ID] or a Matrix [room alias ID].
 ///
@@ -23,10 +23,14 @@ use super::{server_name::ServerName, OwnedRoomAliasId, OwnedRoomId, RoomAliasId,
 /// );
 /// ```
 ///
-/// [room ID]: https://spec.matrix.org/latest/appendices/#room-ids
-/// [room alias ID]: https://spec.matrix.org/latest/appendices/#room-aliases
+/// It can be converted to a `RoomId` or a `RoomAliasId` using `::try_from()` / `.try_into()`.
+/// For example, `<&RoomId>::try_from(room_or_alias_id)` returns either `Ok(room_id)` or
+/// `Err(room_alias_id)`.
+///
+/// [room ID]: https://spec.matrix.org/v1.18/appendices/#room-ids
+/// [room alias ID]: https://spec.matrix.org/v1.18/appendices/#room-aliases
 #[repr(transparent)]
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, IdZst)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, IdDst)]
 #[ruma_id(validate = ruma_identifiers_validation::room_id_or_alias_id::validate)]
 pub struct RoomOrAliasId(str);
 
@@ -76,27 +80,25 @@ enum Variant {
 
 impl<'a> From<&'a RoomId> for &'a RoomOrAliasId {
     fn from(room_id: &'a RoomId) -> Self {
-        RoomOrAliasId::from_borrowed(room_id.as_str())
+        RoomOrAliasId::from_borrowed_unchecked(room_id.as_str())
     }
 }
 
 impl<'a> From<&'a RoomAliasId> for &'a RoomOrAliasId {
     fn from(room_alias_id: &'a RoomAliasId) -> Self {
-        RoomOrAliasId::from_borrowed(room_alias_id.as_str())
+        RoomOrAliasId::from_borrowed_unchecked(room_alias_id.as_str())
     }
 }
 
 impl From<OwnedRoomId> for OwnedRoomOrAliasId {
     fn from(room_id: OwnedRoomId) -> Self {
-        // FIXME: Don't allocate
-        RoomOrAliasId::from_borrowed(room_id.as_str()).to_owned()
+        unsafe { Self::from_inner_unchecked(room_id.into_inner()) }
     }
 }
 
 impl From<OwnedRoomAliasId> for OwnedRoomOrAliasId {
     fn from(room_alias_id: OwnedRoomAliasId) -> Self {
-        // FIXME: Don't allocate
-        RoomOrAliasId::from_borrowed(room_alias_id.as_str()).to_owned()
+        unsafe { Self::from_inner_unchecked(room_alias_id.into_inner()) }
     }
 }
 
@@ -105,8 +107,8 @@ impl<'a> TryFrom<&'a RoomOrAliasId> for &'a RoomId {
 
     fn try_from(id: &'a RoomOrAliasId) -> Result<&'a RoomId, &'a RoomAliasId> {
         match id.variant() {
-            Variant::RoomId => Ok(RoomId::from_borrowed(id.as_str())),
-            Variant::RoomAliasId => Err(RoomAliasId::from_borrowed(id.as_str())),
+            Variant::RoomId => Ok(RoomId::from_borrowed_unchecked(id.as_str())),
+            Variant::RoomAliasId => Err(RoomAliasId::from_borrowed_unchecked(id.as_str())),
         }
     }
 }
@@ -116,8 +118,8 @@ impl<'a> TryFrom<&'a RoomOrAliasId> for &'a RoomAliasId {
 
     fn try_from(id: &'a RoomOrAliasId) -> Result<&'a RoomAliasId, &'a RoomId> {
         match id.variant() {
-            Variant::RoomAliasId => Ok(RoomAliasId::from_borrowed(id.as_str())),
-            Variant::RoomId => Err(RoomId::from_borrowed(id.as_str())),
+            Variant::RoomAliasId => Ok(RoomAliasId::from_borrowed_unchecked(id.as_str())),
+            Variant::RoomId => Err(RoomId::from_borrowed_unchecked(id.as_str())),
         }
     }
 }
@@ -126,10 +128,14 @@ impl TryFrom<OwnedRoomOrAliasId> for OwnedRoomId {
     type Error = OwnedRoomAliasId;
 
     fn try_from(id: OwnedRoomOrAliasId) -> Result<OwnedRoomId, OwnedRoomAliasId> {
-        // FIXME: Don't allocate
-        match id.variant() {
-            Variant::RoomId => Ok(RoomId::from_borrowed(id.as_str()).to_owned()),
-            Variant::RoomAliasId => Err(RoomAliasId::from_borrowed(id.as_str()).to_owned()),
+        let variant = id.variant();
+        let inner = id.into_inner();
+
+        unsafe {
+            match variant {
+                Variant::RoomId => Ok(Self::from_inner_unchecked(inner)),
+                Variant::RoomAliasId => Err(OwnedRoomAliasId::from_inner_unchecked(inner)),
+            }
         }
     }
 }
@@ -138,10 +144,14 @@ impl TryFrom<OwnedRoomOrAliasId> for OwnedRoomAliasId {
     type Error = OwnedRoomId;
 
     fn try_from(id: OwnedRoomOrAliasId) -> Result<OwnedRoomAliasId, OwnedRoomId> {
-        // FIXME: Don't allocate
-        match id.variant() {
-            Variant::RoomAliasId => Ok(RoomAliasId::from_borrowed(id.as_str()).to_owned()),
-            Variant::RoomId => Err(RoomId::from_borrowed(id.as_str()).to_owned()),
+        let variant = id.variant();
+        let inner = id.into_inner();
+
+        unsafe {
+            match variant {
+                Variant::RoomAliasId => Ok(Self::from_inner_unchecked(inner)),
+                Variant::RoomId => Err(OwnedRoomId::from_inner_unchecked(inner)),
+            }
         }
     }
 }

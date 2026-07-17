@@ -1,6 +1,6 @@
 //! Types for the [`m.fully_read`] event.
 //!
-//! [`m.fully_read`]: https://spec.matrix.org/latest/client-server-api/#mfully_read
+//! [`m.fully_read`]: https://spec.matrix.org/v1.18/client-server-api/#mfully_read
 
 use ruma_common::OwnedEventId;
 use ruma_macros::EventContent;
@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// This event appears in the user's room account data for the room the marker is applicable for.
 #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 #[ruma_event(type = "m.fully_read", kind = RoomAccountData)]
 pub struct FullyReadEventContent {
     /// The event the user's read marker is located at in the room.

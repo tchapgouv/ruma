@@ -5,7 +5,7 @@ use ruma_common::OwnedEventId;
 use ruma_macros::EventContent;
 use serde::{Deserialize, Serialize};
 
-use super::{unstable_start::UnstablePollStartContentBlock, validate_selections, PollResponseData};
+use super::{PollResponseData, unstable_start::UnstablePollStartContentBlock, validate_selections};
 use crate::relation::Reference;
 
 /// The payload for an unstable poll response event.
@@ -19,7 +19,7 @@ use crate::relation::Reference;
 ///
 /// [`PollResponseEventContent`]: super::response::PollResponseEventContent
 #[derive(Clone, Debug, Serialize, Deserialize, EventContent)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 #[ruma_event(type = "org.matrix.msc3381.poll.response", kind = MessageLike)]
 pub struct UnstablePollResponseEventContent {
     /// The response's content.
@@ -66,7 +66,7 @@ impl OriginalUnstablePollResponseEvent {
 
 /// An unstable block for poll response content.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct UnstablePollResponseContentBlock {
     /// The selected answers for the response.
     pub answers: Vec<String>,
@@ -85,7 +85,7 @@ impl UnstablePollResponseContentBlock {
     pub fn validate<'a>(
         &'a self,
         poll: &UnstablePollStartContentBlock,
-    ) -> Option<impl Iterator<Item = &'a str>> {
+    ) -> Option<impl Iterator<Item = &'a str> + use<'a>> {
         let answer_ids = poll.answers.iter().map(|a| a.id.as_str()).collect();
         validate_selections(&answer_ids, poll.max_selections, &self.answers)
     }

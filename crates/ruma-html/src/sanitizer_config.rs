@@ -113,7 +113,7 @@ impl SanitizerConfig {
     ///
     /// This is the same as calling `SanitizerConfig::with_mode(HtmlSanitizerMode::Strict)`.
     ///
-    /// [suggested in the Matrix specification]: https://spec.matrix.org/latest/client-server-api/#mroommessage-msgtypes
+    /// [suggested in the Matrix specification]: https://spec.matrix.org/v1.18/client-server-api/#mroommessage-msgtypes
     pub fn strict() -> Self {
         Self::with_mode(HtmlSanitizerMode::Strict)
     }
@@ -133,7 +133,7 @@ impl SanitizerConfig {
     ///
     /// This is the same as calling `SanitizerConfig::with_mode(HtmlSanitizerMode::Compat)`.
     ///
-    /// [listed in the Matrix specification]: https://spec.matrix.org/latest/client-server-api/#mroommessage-msgtypes
+    /// [listed in the Matrix specification]: https://spec.matrix.org/v1.18/client-server-api/#mroommessage-msgtypes
     pub fn compat() -> Self {
         Self::with_mode(HtmlSanitizerMode::Compat)
     }
@@ -176,7 +176,7 @@ impl SanitizerConfig {
         self
     }
 
-    /// Remove the [rich reply fallback].
+    /// Remove the [rich reply] fallback.
     ///
     /// Calling this allows to remove the `mx-reply` element in addition to the list of elements to
     /// remove.
@@ -184,7 +184,7 @@ impl SanitizerConfig {
     /// Removing elements has a higher priority than ignoring or allowing. So if this settings is
     /// set, `mx-reply` will always be removed.
     ///
-    /// [rich reply fallback]: https://spec.matrix.org/latest/client-server-api/#fallbacks-for-rich-replies
+    /// [rich reply]: https://spec.matrix.org/v1.18/client-server-api/#rich-replies
     pub fn remove_reply_fallback(mut self) -> Self {
         self.remove_reply_fallback = true;
         self
@@ -454,7 +454,7 @@ pub struct PropertiesNames<'a> {
     pub properties: &'a [&'static str],
 }
 
-impl<'a> PropertiesNames<'a> {
+impl PropertiesNames<'_> {
     fn to_tuple(self) -> (&'static str, HashSet<&'static str>) {
         let set = self.properties.iter().copied().collect();
         (self.parent, set)
@@ -471,7 +471,7 @@ pub struct ElementAttributesReplacement<'a> {
     pub replacements: &'a [NameReplacement],
 }
 
-impl<'a> ElementAttributesReplacement<'a> {
+impl ElementAttributesReplacement<'_> {
     fn to_tuple(self) -> (&'static str, HashMap<&'static str, &'static str>) {
         let map = self.replacements.iter().map(|r| r.to_tuple()).collect();
         (self.element, map)
@@ -490,7 +490,7 @@ pub struct ElementAttributesSchemes<'a> {
     pub attr_schemes: &'a [PropertiesNames<'a>],
 }
 
-impl<'a> ElementAttributesSchemes<'a> {
+impl ElementAttributesSchemes<'_> {
     fn to_tuple(self) -> (&'static str, HashMap<&'static str, HashSet<&'static str>>) {
         let map = self.attr_schemes.iter().map(|s| s.to_tuple()).collect();
         (self.element, map)

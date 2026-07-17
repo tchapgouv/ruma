@@ -5,27 +5,28 @@
 pub mod v3 {
     //! `/v3/` ([spec])
     //!
-    //! [spec]: https://spec.matrix.org/latest/client-server-api/#post_matrixclientv3useruseridfilter
+    //! [spec]: https://spec.matrix.org/v1.18/client-server-api/#post_matrixclientv3useruseridfilter
 
     use ruma_common::{
-        api::{request, response, Metadata},
-        metadata, OwnedUserId,
+        OwnedUserId,
+        api::{auth_scheme::AccessToken, request, response},
+        metadata,
     };
 
     use crate::filter::FilterDefinition;
 
-    const METADATA: Metadata = metadata! {
+    metadata! {
         method: POST,
         rate_limited: false,
         authentication: AccessToken,
         history: {
-            1.0 => "/_matrix/client/r0/user/:user_id/filter",
-            1.1 => "/_matrix/client/v3/user/:user_id/filter",
+            1.0 => "/_matrix/client/r0/user/{user_id}/filter",
+            1.1 => "/_matrix/client/v3/user/{user_id}/filter",
         }
-    };
+    }
 
     /// Request type for the `create_filter` endpoint.
-    #[request(error = crate::Error)]
+    #[request]
     pub struct Request {
         /// The ID of the user uploading the filter.
         ///
@@ -39,7 +40,7 @@ pub mod v3 {
     }
 
     /// Response type for the `create_filter` endpoint.
-    #[response(error = crate::Error)]
+    #[response]
     pub struct Response {
         /// The ID of the filter that was created.
         pub filter_id: String,
@@ -85,19 +86,28 @@ pub mod v3 {
         #[cfg(feature = "client")]
         #[test]
         fn serialize_request() {
+            use std::borrow::Cow;
+
             use ruma_common::{
-                api::{MatrixVersion, OutgoingRequest, SendAccessToken},
+                api::{
+                    MatrixVersion, OutgoingRequest, SupportedVersions, auth_scheme::SendAccessToken,
+                },
                 owned_user_id,
             };
 
             use crate::filter::FilterDefinition;
+
+            let supported = SupportedVersions {
+                versions: [MatrixVersion::V1_1].into(),
+                features: Default::default(),
+            };
 
             let req =
                 super::Request::new(owned_user_id!("@foo:bar.com"), FilterDefinition::default())
                     .try_into_http_request::<Vec<u8>>(
                         "https://matrix.org",
                         SendAccessToken::IfRequired("tok"),
-                        &[MatrixVersion::V1_1],
+                        Cow::Owned(supported),
                     )
                     .unwrap();
             assert_eq!(req.body(), b"{}");

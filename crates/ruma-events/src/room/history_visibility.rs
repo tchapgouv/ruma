@@ -1,6 +1,6 @@
 //! Types for the [`m.room.history_visibility`] event.
 //!
-//! [`m.room.history_visibility`]: https://spec.matrix.org/latest/client-server-api/#mroomhistory_visibility
+//! [`m.room.history_visibility`]: https://spec.matrix.org/v1.18/client-server-api/#mroomhistory_visibility
 
 use ruma_common::serde::StringEnum;
 use ruma_macros::EventContent;
@@ -13,7 +13,7 @@ use crate::{EmptyStateKey, PrivOwnedStr};
 /// This event controls whether a member of a room can see the events that happened in a room from
 /// before they joined.
 #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 #[ruma_event(type = "m.room.history_visibility", kind = State, state_key_type = EmptyStateKey)]
 pub struct RoomHistoryVisibilityEventContent {
     /// Who can see the room history.
@@ -50,7 +50,7 @@ impl SyncRoomHistoryVisibilityEvent {
 
 /// Who can see a room's history.
 #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/doc/string_enum.md"))]
-#[derive(Clone, PartialEq, Eq, StringEnum)]
+#[derive(Clone, StringEnum)]
 #[ruma_enum(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum HistoryVisibility {

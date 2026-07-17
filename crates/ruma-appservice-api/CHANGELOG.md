@@ -1,82 +1,159 @@
-# [unreleased]
+# Changelog
 
-# 0.10.0
+## Unreleased
+
+## 0.16.0
 
 Breaking changes:
 
-* The `url` field of `Registration` is now an `Option<String>`. This should have
+- Upgrade ruma-common and ruma-events
+
+## 0.15.0
+
+Breaking changes:
+
+- Upgrade ruma-common and ruma-events
+
+## 0.14.1
+
+Improvements:
+
+- Update the `to_device` field, which is behind `unstable-msc4203`, of
+  `push_events::v1::Request` to use `Vec<Raw<AnyAppserviceToDeviceEvent>>`.
+
+## 0.14.0
+
+- Bump MSRV to 1.88
+
+## 0.13.0
+
+Breaking changes:
+
+- The `thirdparty::get_protocol` response uses `AppserviceProtocolInstance`
+  instead of `ProtocolInstance`.
+- Update the endpoint metadata definitions to use the new syntax for variables.
+- The `ephemeral` field of `push_events::v1::Request` is now a
+  `Vec<Raw<EphemeralData>>`. This avoids the entire deserialization of the
+  `Request` to fail if a single `EphemeralData` deserialization fails.
+- All the endpoints use a `SinglePath` rather than a `VersionHistory` as
+  `Metadata::PathBuilder`. Making a request doesn't require to provide a dummy
+  `SupportedVersions` anymore.
+
+## 0.12.2
+
+Bug fixes:
+
+- `Registration` deserialization fails if `url` is missing. The value must be
+  set or `null`.
+
+## 0.12.1
+
+Improvements:
+
+- Move unstable support for sending to-device events to appservices from
+  `unstable-msc2409` to `unstable-msc4203`.
+- Stabilize support for sending ephemeral data to appservices according to
+  Matrix 1.13.
+  - `Edu` was renamed to `EphemeralData` and uses the types from ruma-events.
+  - Custom data can be accessed with the `EphemeralData::data()` method.
+  - The `unstable-msc2409` cargo feature was removed.
+
+## 0.12.0
+
+Improvements:
+
+- The `unstable-exhaustive-types` cargo feature was replaced by the
+  `ruma_unstable_exhaustive_types` compile-time `cfg` setting. Like all `cfg`
+  settings, it can be enabled at compile-time with the `RUSTFLAGS` environment
+  variable, or inside `.cargo/config.toml`. It can also be enabled by setting
+  the `RUMA_UNSTABLE_EXHAUSTIVE_TYPES` environment variable.
+
+## 0.11.0
+
+Breaking changes:
+
+- Use `OwnedOneTimeKeyId` and `OneTimeKeyAlgorithm` instead of
+  `OwnedDeviceKeyId` and `DeviceKeyAlgorithm` respectively to identify one-time
+  and fallback keys and their algorithm.
+
+## 0.10.0
+
+Breaking changes:
+
+- The `url` field of `Registration` is now an `Option<String>`. This should have
   always been the case.
 - The http crate had a major version bump to version 1.1
 
-# 0.9.0
+## 0.9.0
 
 Improvements:
 
 - Add support for the appservice ping mechanism (MSC 2659 / Matrix 1.7)
 
-# 0.8.1
+## 0.8.1
 
 Improvements:
 
-* Update links to the latest version of the Matrix spec
+- Update links to the latest version of the Matrix spec
 
-# 0.8.0
+## 0.8.0
 
 Improvements:
 
-* Add support for using the Authorization header (MSC2832 / Matrix 1.4)
+- Add support for using the Authorization header (MSC2832 / Matrix 1.4)
 
-# 0.7.0
+## 0.7.0
 
 Breaking changes:
 
-* Remove `PartialEq` implementation for `Namespace`
-* Remove `push_events::v1::IncomingRequest::try_into_sync_response` and the
+- Remove `PartialEq` implementation for `Namespace`
+- Remove `push_events::v1::IncomingRequest::try_into_sync_response` and the
   `helper` Cargo feature that was gating it
-  * This API is no longer being used by the only known consumer
-  * If you were using it, please let us know!
+  - This API is no longer being used by the only known consumer
+  - If you were using it, please let us know!
 
-# 0.6.0
-
-Breaking changes:
-
-* Upgrade dependencies
-
-# 0.5.0
+## 0.6.0
 
 Breaking changes:
 
-* Upgrade dependencies
+- Upgrade dependencies
 
-# 0.4.0
-
-Breaking changes:
-
-* Upgrade dependencies
-
-# 0.3.0
+## 0.5.0
 
 Breaking changes:
 
-* Upgrade ruma-client-api to 0.11.0
-* Upgrade ruma-events to 0.23.0
+- Upgrade dependencies
 
-# 0.2.0
+## 0.4.0
 
 Breaking changes:
 
-* Fix endpoint versioning
-* Upgrade dependencies
+- Upgrade dependencies
+
+## 0.3.0
+
+Breaking changes:
+
+- Upgrade ruma-client-api to 0.11.0
+- Upgrade ruma-events to 0.23.0
+
+## 0.2.0
+
+Breaking changes:
+
+- Fix endpoint versioning
+- Upgrade dependencies
 
 Improvements:
 
-* Upgrade dependencies
-* Add room visibility management endpoint
+- Upgrade dependencies
+- Add room visibility management endpoint
 
 Bug fixes:
 
-* Fix `push_events::v1::Request` serialization by sending a dictionary instead of an array on request body
+- Fix `push_events::v1::Request` serialization by sending a dictionary instead of an array on
+  request body
 
-# 0.1.0
+## 0.1.0
 
 Initial release.

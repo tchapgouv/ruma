@@ -7,8 +7,8 @@ license = "MIT"
 name = "ruma-appservice-api"
 readme = "README.md"
 repository = "https://github.com/ruma/ruma"
-version = "0.10.0"
-edition = "2021"
+version = "0.16.0"
+edition = "2024"
 rust-version = { workspace = true }
 
 [package.metadata.docs.rs]
@@ -18,9 +18,8 @@ all-features = true
 client = []
 server = []
 
-unstable-exhaustive-types = []
-unstable-msc2409 = []
 unstable-msc3202 = []
+unstable-msc4203 = []
 
 [dependencies]
 js_int = { workspace = true, features = ["serde"] }

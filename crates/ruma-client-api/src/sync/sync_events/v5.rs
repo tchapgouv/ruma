@@ -12,28 +12,29 @@ use std::{collections::BTreeMap, time::Duration};
 use js_int::UInt;
 use js_option::JsOption;
 use ruma_common::{
-    api::{request, response, Metadata},
-    metadata,
-    serde::{duration::opt_ms, Raw},
     OwnedMxcUri, OwnedRoomId, OwnedUserId,
+    api::{auth_scheme::AccessToken, request, response},
+    metadata,
+    presence::PresenceState,
+    serde::{Raw, duration::opt_ms},
 };
-use ruma_events::{AnyStrippedStateEvent, AnySyncStateEvent, AnySyncTimelineEvent, StateEventType};
+use ruma_events::{AnySyncStateEvent, AnySyncTimelineEvent, StateEventType};
 use serde::{Deserialize, Serialize};
 
-use super::{v4, UnreadNotificationsCount};
+use super::UnreadNotificationsCount;
 
-const METADATA: Metadata = metadata! {
+metadata! {
     method: POST,
     rate_limited: false,
     authentication: AccessToken,
     history: {
-        unstable => "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync",
+        unstable("org.matrix.simplified_msc3575") => "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync",
         // 1.4 => "/_matrix/client/v5/sync",
     }
-};
+}
 
 /// Request type for the `/sync` endpoint.
-#[request(error = crate::Error)]
+#[request]
 #[derive(Default)]
 pub struct Request {
     /// A point in time to continue a sync from.
@@ -70,6 +71,13 @@ pub struct Request {
     #[ruma_api(query)]
     pub timeout: Option<Duration>,
 
+    /// Controls whether the client is automatically marked as online by polling this API.
+    ///
+    /// Defaults to `PresenceState::Online`.
+    #[serde(default, skip_serializing_if = "ruma_common::serde::is_default")]
+    #[ruma_api(query)]
+    pub set_presence: PresenceState,
+
     /// Lists of rooms we are interested by, represented by ranges.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub lists: BTreeMap<String, request::List>,
@@ -95,14 +103,14 @@ impl Request {
 
 /// HTTP types related to a [`Request`].
 pub mod request {
-    use ruma_common::{directory::RoomTypeFilter, serde::deserialize_cow_str, RoomId};
+    use ruma_common::{RoomId, directory::RoomTypeFilter, serde::deserialize_cow_str};
     use serde::de::Error as _;
 
     use super::{BTreeMap, Deserialize, OwnedRoomId, Serialize, StateEventType, UInt};
 
     /// A sliding sync list request (see [`super::Request::lists`]).
     #[derive(Clone, Debug, Default, Serialize, Deserialize)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
     pub struct List {
         /// The ranges of rooms we're interested in.
         pub ranges: Vec<(UInt, UInt)>,
@@ -110,11 +118,6 @@ pub mod request {
         /// The details to be included per room.
         #[serde(flatten)]
         pub room_details: RoomDetails,
-
-        /// Request a stripped variant of membership events for the users used
-        /// to calculate the room name.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        pub include_heroes: Option<bool>,
 
         /// Filters to apply to the list before sorting.
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -126,27 +129,40 @@ pub mod request {
     /// All fields are applied with _AND_ operators. The absence of fields
     /// implies no filter on that criteria: it does NOT imply `false`.
     #[derive(Clone, Debug, Default, Serialize, Deserialize)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
     pub struct ListFilters {
-        /// Whether to return invited rooms, only joined rooms or both.
-        ///
-        /// Flag which only returns rooms the user is currently invited to.
-        /// If unset, both invited and joined rooms are returned. If false,
-        /// no invited rooms are returned. If true, only invited rooms are
-        /// returned.
+        /// Whether to return only DM rooms (as determined by the `m.direct` account data event),
+        /// only non-DM rooms, or both.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub is_dm: Option<bool>,
+
+        /// Whether to return only encrypted rooms (as determined by the existence of an
+        /// `m.room.encryption` state event), only unencrypted rooms, or both.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub is_encrypted: Option<bool>,
+
+        /// Whether to return only invited rooms, only joined rooms, or both.
         #[serde(skip_serializing_if = "Option::is_none")]
         pub is_invite: Option<bool>,
 
+        /// Only list rooms with these create-types, or all.
+        ///
+        /// If a room type is specified in both `room_types` and `not_room_types`,
+        /// `not_room_types` wins and the corresponding rooms are not included.
+        #[serde(default, skip_serializing_if = "<[_]>::is_empty")]
+        pub room_types: Vec<RoomTypeFilter>,
+
         /// Only list rooms that are not of these create-types, or all.
         ///
-        /// This can be used to filter out spaces from the room list.
+        /// If a room type is specified in both `room_types` and `not_room_types`,
+        /// `not_room_types` wins and the corresponding rooms are not included.
         #[serde(default, skip_serializing_if = "<[_]>::is_empty")]
         pub not_room_types: Vec<RoomTypeFilter>,
     }
 
     /// Sliding sync request room subscription (see [`super::Request::room_subscriptions`]).
     #[derive(Clone, Debug, Default, Serialize, Deserialize)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
     pub struct RoomSubscription {
         /// Required state for each returned room. An array of event type and
         /// state key tuples.
@@ -155,15 +171,11 @@ pub mod request {
 
         /// The maximum number of timeline events to return per room.
         pub timeline_limit: UInt,
-
-        /// Include the room heroes.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        pub include_heroes: Option<bool>,
     }
 
     /// Sliding sync request room details (see [`List::room_details`]).
     #[derive(Clone, Debug, Default, Serialize, Deserialize)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
     pub struct RoomDetails {
         /// Required state for each returned room. An array of event type and state key tuples.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -175,7 +187,7 @@ pub mod request {
 
     /// Sliding sync request extensions (see [`super::Request::extensions`]).
     #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
     pub struct Extensions {
         /// Configure the to-device extension.
         #[serde(default, skip_serializing_if = "ToDevice::is_empty")]
@@ -197,6 +209,15 @@ pub mod request {
         #[serde(default, skip_serializing_if = "Typing::is_empty")]
         pub typing: Typing,
 
+        /// Configure the thread subscriptions extension.
+        #[cfg(feature = "unstable-msc4308")]
+        #[serde(
+            default,
+            skip_serializing_if = "ThreadSubscriptions::is_empty",
+            rename = "io.element.msc4308.thread_subscriptions"
+        )]
+        pub thread_subscriptions: ThreadSubscriptions,
+
         /// Extensions may add further fields to the list.
         #[serde(flatten)]
         other: BTreeMap<String, serde_json::Value>,
@@ -214,11 +235,46 @@ pub mod request {
         }
     }
 
+    /// Single entry for a room subscription configuration in an extension request.
+    #[derive(Clone, Debug, PartialEq)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
+    pub enum ExtensionRoomConfig {
+        /// Apply extension to all global room subscriptions.
+        AllSubscribed,
+
+        /// Additionally apply extension to this specific room.
+        Room(OwnedRoomId),
+    }
+
+    impl Serialize for ExtensionRoomConfig {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            match self {
+                Self::AllSubscribed => serializer.serialize_str("*"),
+                Self::Room(r) => r.serialize(serializer),
+            }
+        }
+    }
+
+    impl<'de> Deserialize<'de> for ExtensionRoomConfig {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: serde::de::Deserializer<'de>,
+        {
+            match deserialize_cow_str(deserializer)?.as_ref() {
+                "*" => Ok(Self::AllSubscribed),
+                other => Ok(Self::Room(RoomId::parse(other).map_err(D::Error::custom)?)),
+            }
+        }
+    }
+
     /// To-device messages extension.
     ///
     /// According to [MSC3885](https://github.com/matrix-org/matrix-spec-proposals/pull/3885).
     #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
     pub struct ToDevice {
         /// Activate or deactivate this extension.
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -231,21 +287,6 @@ pub mod request {
         /// Give messages since this token only.
         #[serde(skip_serializing_if = "Option::is_none")]
         pub since: Option<String>,
-
-        /// List of list names for which to-device events should be enabled.
-        ///
-        /// If not defined, will be enabled for *all* the lists appearing in the
-        /// request. If defined and empty, will be disabled for all the lists.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        pub lists: Option<Vec<String>>,
-
-        /// List of room names for which to-device events should be enabled.
-        ///
-        /// If not defined, will be enabled for *all* the rooms appearing in the
-        /// room subscriptions. If defined and empty, will be disabled for all
-        /// the rooms.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        pub rooms: Option<Vec<OwnedRoomId>>,
     }
 
     impl ToDevice {
@@ -259,7 +300,7 @@ pub mod request {
     ///
     /// According to [MSC3884](https://github.com/matrix-org/matrix-spec-proposals/pull/3884).
     #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
     pub struct E2EE {
         /// Activate or deactivate this extension.
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -278,7 +319,7 @@ pub mod request {
     /// Not yet part of the spec proposal. Taken from the reference implementation
     /// <https://github.com/matrix-org/sliding-sync/blob/main/sync3/extensions/account_data.go>
     #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
     pub struct AccountData {
         /// Activate or deactivate this extension.
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -301,7 +342,7 @@ pub mod request {
         /// room subscriptions. If defined and empty, will be disabled for all
         /// the rooms.
         #[serde(skip_serializing_if = "Option::is_none")]
-        pub rooms: Option<Vec<OwnedRoomId>>,
+        pub rooms: Option<Vec<ExtensionRoomConfig>>,
     }
 
     impl AccountData {
@@ -315,7 +356,7 @@ pub mod request {
     ///
     /// According to [MSC3960](https://github.com/matrix-org/matrix-spec-proposals/pull/3960)
     #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
     pub struct Receipts {
         /// Activate or deactivate this extension.
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -334,7 +375,7 @@ pub mod request {
         /// room subscriptions. If defined and empty, will be disabled for all
         /// the rooms.
         #[serde(skip_serializing_if = "Option::is_none")]
-        pub rooms: Option<Vec<ReceiptsRoom>>,
+        pub rooms: Option<Vec<ExtensionRoomConfig>>,
     }
 
     impl Receipts {
@@ -344,48 +385,12 @@ pub mod request {
         }
     }
 
-    /// Single entry for a room-related read receipt configuration in
-    /// [`Receipts`].
-    #[derive(Clone, Debug, PartialEq)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
-    pub enum ReceiptsRoom {
-        /// Get read receipts for all the subscribed rooms.
-        AllSubscribed,
-
-        /// Get read receipts for this particular room.
-        Room(OwnedRoomId),
-    }
-
-    impl Serialize for ReceiptsRoom {
-        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: serde::Serializer,
-        {
-            match self {
-                Self::AllSubscribed => serializer.serialize_str("*"),
-                Self::Room(r) => r.serialize(serializer),
-            }
-        }
-    }
-
-    impl<'de> Deserialize<'de> for ReceiptsRoom {
-        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: serde::de::Deserializer<'de>,
-        {
-            match deserialize_cow_str(deserializer)?.as_ref() {
-                "*" => Ok(Self::AllSubscribed),
-                other => Ok(Self::Room(RoomId::parse(other).map_err(D::Error::custom)?.to_owned())),
-            }
-        }
-    }
-
     /// Typing extension configuration.
     ///
     /// Not yet part of the spec proposal. Taken from the reference implementation
     /// <https://github.com/matrix-org/sliding-sync/blob/main/sync3/extensions/typing.go>
     #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
     pub struct Typing {
         /// Activate or deactivate this extension.
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -404,7 +409,7 @@ pub mod request {
         /// room subscriptions. If defined and empty, will be disabled for all
         /// the rooms.
         #[serde(skip_serializing_if = "Option::is_none")]
-        pub rooms: Option<Vec<OwnedRoomId>>,
+        pub rooms: Option<Vec<ExtensionRoomConfig>>,
     }
 
     impl Typing {
@@ -413,10 +418,37 @@ pub mod request {
             self.enabled.is_none()
         }
     }
+
+    /// Thread subscriptions extension.
+    ///
+    /// Specified as part of [MSC4308](https://github.com/matrix-org/matrix-spec-proposals/pull/4308).
+    #[cfg(feature = "unstable-msc4308")]
+    #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
+    pub struct ThreadSubscriptions {
+        /// Activate or deactivate this extension.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub enabled: Option<bool>,
+
+        /// Maximum number of thread subscription changes to receive in the response.
+        ///
+        /// Defaults to 100.
+        /// Servers may impose a smaller limit than what is requested here.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub limit: Option<UInt>,
+    }
+
+    #[cfg(feature = "unstable-msc4308")]
+    impl ThreadSubscriptions {
+        /// Whether all fields are empty or `None`.
+        pub fn is_empty(&self) -> bool {
+            self.enabled.is_none() && self.limit.is_none()
+        }
+    }
 }
 
 /// Response type for the `/sync` endpoint.
-#[response(error = crate::Error)]
+#[response]
 pub struct Response {
     /// Matches the `txn_id` sent by the request (see [`Request::txn_id`]).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -454,30 +486,36 @@ impl Response {
 
 /// HTTP types related to a [`Response`].
 pub mod response {
-    use ruma_common::DeviceKeyAlgorithm;
+    use ruma_common::OneTimeKeyAlgorithm;
+    #[cfg(feature = "unstable-msc4308")]
+    use ruma_common::OwnedEventId;
     use ruma_events::{
-        receipt::SyncReceiptEvent, typing::SyncTypingEvent, AnyGlobalAccountDataEvent,
-        AnyRoomAccountDataEvent, AnyToDeviceEvent,
+        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
+        AnyToDeviceEvent, receipt::SyncReceiptEvent, typing::SyncTypingEvent,
     };
 
     use super::{
-        super::DeviceLists, AnyStrippedStateEvent, AnySyncStateEvent, AnySyncTimelineEvent,
-        BTreeMap, Deserialize, JsOption, OwnedMxcUri, OwnedRoomId, OwnedUserId, Raw, Serialize,
-        UInt, UnreadNotificationsCount,
+        super::DeviceLists, AnySyncStateEvent, AnySyncTimelineEvent, BTreeMap, Deserialize,
+        JsOption, OwnedMxcUri, OwnedRoomId, OwnedUserId, Raw, Serialize, UInt,
+        UnreadNotificationsCount,
+    };
+    #[cfg(feature = "unstable-msc4308")]
+    use crate::threads::get_thread_subscriptions_changes::unstable::{
+        ThreadSubscription, ThreadUnsubscription,
     };
 
     /// A sliding sync response updates to joiend rooms (see
     /// [`super::Response::lists`]).
     #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
     pub struct List {
         /// The total number of rooms found for this list.
         pub count: UInt,
     }
 
-    /// A slising sync response updated room (see [`super::Response::rooms`]).
+    /// A sliding sync response updated room (see [`super::Response::rooms`]).
     #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
     pub struct Room {
         /// The name as calculated by the server.
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -545,7 +583,7 @@ pub mod response {
         #[serde(skip_serializing_if = "Option::is_none")]
         pub bump_stamp: Option<UInt>,
 
-        /// Heroes of the room, if requested.
+        /// Heroes of the room.
         #[serde(skip_serializing_if = "Option::is_none")]
         pub heroes: Option<Vec<Hero>>,
     }
@@ -559,7 +597,7 @@ pub mod response {
 
     /// A sliding sync response room hero (see [`Room::heroes`]).
     #[derive(Clone, Debug, Deserialize, Serialize)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
     pub struct Hero {
         /// The user ID.
         pub user_id: OwnedUserId,
@@ -582,7 +620,7 @@ pub mod response {
 
     /// Extensions responses.
     #[derive(Clone, Debug, Default, Serialize, Deserialize)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
     pub struct Extensions {
         /// To-device extension response.
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -603,6 +641,15 @@ pub mod response {
         /// Typing extension response.
         #[serde(default, skip_serializing_if = "Typing::is_empty")]
         pub typing: Typing,
+
+        /// Thread subscriptions extension response.
+        #[cfg(feature = "unstable-msc4308")]
+        #[serde(
+            default,
+            skip_serializing_if = "ThreadSubscriptions::is_empty",
+            rename = "io.element.msc4308.thread_subscriptions"
+        )]
+        pub thread_subscriptions: ThreadSubscriptions,
     }
 
     impl Extensions {
@@ -622,7 +669,7 @@ pub mod response {
     ///
     /// According to [MSC3885](https://github.com/matrix-org/matrix-spec-proposals/pull/3885).
     #[derive(Clone, Debug, Default, Serialize, Deserialize)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
     pub struct ToDevice {
         /// Fetch the next batch from this entry.
         pub next_batch: String,
@@ -636,7 +683,7 @@ pub mod response {
     ///
     /// According to [MSC3884](https://github.com/matrix-org/matrix-spec-proposals/pull/3884).
     #[derive(Clone, Debug, Default, Serialize, Deserialize)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
     pub struct E2EE {
         /// Information on E2EE device updates.
         #[serde(default, skip_serializing_if = "DeviceLists::is_empty")]
@@ -645,15 +692,14 @@ pub mod response {
         /// For each key algorithm, the number of unclaimed one-time keys
         /// currently held on the server for a device.
         #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-        pub device_one_time_keys_count: BTreeMap<DeviceKeyAlgorithm, UInt>,
+        pub device_one_time_keys_count: BTreeMap<OneTimeKeyAlgorithm, UInt>,
 
-        /// For each key algorithm, the number of unclaimed one-time keys
-        /// currently held on the server for a device.
+        /// The unused fallback key algorithms.
         ///
         /// The presence of this field indicates that the server supports
         /// fallback keys.
         #[serde(skip_serializing_if = "Option::is_none")]
-        pub device_unused_fallback_key_types: Option<Vec<DeviceKeyAlgorithm>>,
+        pub device_unused_fallback_key_types: Option<Vec<OneTimeKeyAlgorithm>>,
     }
 
     impl E2EE {
@@ -670,7 +716,7 @@ pub mod response {
     /// Not yet part of the spec proposal. Taken from the reference implementation
     /// <https://github.com/matrix-org/sliding-sync/blob/main/sync3/extensions/account_data.go>
     #[derive(Clone, Debug, Default, Serialize, Deserialize)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
     pub struct AccountData {
         /// The global private data created by this user.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -692,7 +738,7 @@ pub mod response {
     ///
     /// According to [MSC3960](https://github.com/matrix-org/matrix-spec-proposals/pull/3960)
     #[derive(Clone, Debug, Default, Serialize, Deserialize)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
     pub struct Receipts {
         /// The ephemeral receipt room event for each room.
         #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -711,7 +757,7 @@ pub mod response {
     /// Not yet part of the spec proposal. Taken from the reference implementation
     /// <https://github.com/matrix-org/sliding-sync/blob/main/sync3/extensions/typing.go>
     #[derive(Clone, Debug, Default, Serialize, Deserialize)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
     pub struct Typing {
         /// The ephemeral typing event for each room.
         #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -724,97 +770,37 @@ pub mod response {
             self.rooms.is_empty()
         }
     }
-}
 
-impl From<v4::Response> for Response {
-    fn from(value: v4::Response) -> Self {
-        Self {
-            pos: value.pos,
-            txn_id: value.txn_id,
-            lists: value.lists.into_iter().map(|(room_id, list)| (room_id, list.into())).collect(),
-            rooms: value.rooms.into_iter().map(|(room_id, room)| (room_id, room.into())).collect(),
-            extensions: value.extensions.into(),
+    /// Thread subscriptions extension response.
+    ///
+    /// Specified as part of [MSC4308](https://github.com/matrix-org/matrix-spec-proposals/pull/4308).
+    #[cfg(feature = "unstable-msc4308")]
+    #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
+    pub struct ThreadSubscriptions {
+        /// New thread subscriptions.
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        pub subscribed: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, ThreadSubscription>>,
+
+        /// New thread unsubscriptions.
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        pub unsubscribed: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, ThreadUnsubscription>>,
+
+        /// A token that can be used to backpaginate (via the companion endpoint) other thread
+        /// subscription changes that occurred since the last sync, but that were not included in
+        /// this response.
+        ///
+        /// Only set when there are more changes to fetch.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub prev_batch: Option<String>,
+    }
+
+    #[cfg(feature = "unstable-msc4308")]
+    impl ThreadSubscriptions {
+        /// Whether all fields are empty or `None`.
+        pub fn is_empty(&self) -> bool {
+            self.subscribed.is_empty() && self.unsubscribed.is_empty() && self.prev_batch.is_none()
         }
-    }
-}
-
-impl From<v4::SyncList> for response::List {
-    fn from(value: v4::SyncList) -> Self {
-        Self { count: value.count }
-    }
-}
-
-impl From<v4::SlidingSyncRoom> for response::Room {
-    fn from(value: v4::SlidingSyncRoom) -> Self {
-        Self {
-            name: value.name,
-            avatar: value.avatar,
-            initial: value.initial,
-            is_dm: value.is_dm,
-            invite_state: value.invite_state,
-            unread_notifications: value.unread_notifications,
-            timeline: value.timeline,
-            required_state: value.required_state,
-            prev_batch: value.prev_batch,
-            limited: value.limited,
-            joined_count: value.joined_count,
-            invited_count: value.invited_count,
-            num_live: value.num_live,
-            bump_stamp: value.timestamp.map(|t| t.0),
-            heroes: value.heroes.map(|heroes| heroes.into_iter().map(Into::into).collect()),
-        }
-    }
-}
-
-impl From<v4::SlidingSyncRoomHero> for response::Hero {
-    fn from(value: v4::SlidingSyncRoomHero) -> Self {
-        Self { user_id: value.user_id, name: value.name, avatar: value.avatar }
-    }
-}
-
-impl From<v4::Extensions> for response::Extensions {
-    fn from(value: v4::Extensions) -> Self {
-        Self {
-            to_device: value.to_device.map(Into::into),
-            e2ee: value.e2ee.into(),
-            account_data: value.account_data.into(),
-            receipts: value.receipts.into(),
-            typing: value.typing.into(),
-        }
-    }
-}
-
-impl From<v4::ToDevice> for response::ToDevice {
-    fn from(value: v4::ToDevice) -> Self {
-        Self { next_batch: value.next_batch, events: value.events }
-    }
-}
-
-impl From<v4::E2EE> for response::E2EE {
-    fn from(value: v4::E2EE) -> Self {
-        Self {
-            device_lists: value.device_lists,
-            device_one_time_keys_count: value.device_one_time_keys_count,
-            device_unused_fallback_key_types: value.device_unused_fallback_key_types,
-        }
-    }
-}
-
-impl From<v4::AccountData> for response::AccountData {
-    fn from(value: v4::AccountData) -> Self {
-        Self { global: value.global, rooms: value.rooms }
-    }
-}
-
-impl From<v4::Receipts> for response::Receipts {
-    fn from(value: v4::Receipts) -> Self {
-        Self { rooms: value.rooms }
-    }
-}
-
-impl From<v4::Typing> for response::Typing {
-    fn from(value: v4::Typing) -> Self {
-        Self { rooms: value.rooms }
     }
 }
 
@@ -822,27 +808,27 @@ impl From<v4::Typing> for response::Typing {
 mod tests {
     use ruma_common::owned_room_id;
 
-    use super::request::ReceiptsRoom;
+    use super::request::ExtensionRoomConfig;
 
     #[test]
-    fn serialize_request_receipts_room() {
-        let entry = ReceiptsRoom::AllSubscribed;
+    fn serialize_request_extension_room_config() {
+        let entry = ExtensionRoomConfig::AllSubscribed;
         assert_eq!(serde_json::to_string(&entry).unwrap().as_str(), r#""*""#);
 
-        let entry = ReceiptsRoom::Room(owned_room_id!("!foo:bar.baz"));
+        let entry = ExtensionRoomConfig::Room(owned_room_id!("!foo:bar.baz"));
         assert_eq!(serde_json::to_string(&entry).unwrap().as_str(), r#""!foo:bar.baz""#);
     }
 
     #[test]
-    fn deserialize_request_receipts_room() {
+    fn deserialize_request_extension_room_config() {
         assert_eq!(
-            serde_json::from_str::<ReceiptsRoom>(r#""*""#).unwrap(),
-            ReceiptsRoom::AllSubscribed
+            serde_json::from_str::<ExtensionRoomConfig>(r#""*""#).unwrap(),
+            ExtensionRoomConfig::AllSubscribed
         );
 
         assert_eq!(
-            serde_json::from_str::<ReceiptsRoom>(r#""!foo:bar.baz""#).unwrap(),
-            ReceiptsRoom::Room(owned_room_id!("!foo:bar.baz"))
+            serde_json::from_str::<ExtensionRoomConfig>(r#""!foo:bar.baz""#).unwrap(),
+            ExtensionRoomConfig::Room(owned_room_id!("!foo:bar.baz"))
         );
     }
 }

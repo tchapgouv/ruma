@@ -1,6 +1,6 @@
 //! Types for the [`m.key.verification.request`] event.
 //!
-//! [`m.key.verification.request`]: https://spec.matrix.org/latest/client-server-api/#mkeyverificationrequest
+//! [`m.key.verification.request`]: https://spec.matrix.org/v1.18/client-server-api/#mkeyverificationrequest
 
 use ruma_common::{MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedTransactionId};
 use ruma_macros::EventContent;
@@ -10,7 +10,7 @@ use super::VerificationMethod;
 
 /// The content of an `m.key.verification.request` event.
 #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 #[ruma_event(type = "m.key.verification.request", kind = ToDevice)]
 pub struct ToDeviceKeyVerificationRequestEventContent {
     /// The device ID which is initiating the request.

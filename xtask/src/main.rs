@@ -13,23 +13,30 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 use serde::Deserialize;
 use serde_json::from_str as from_json_str;
+use xshell::Shell;
 
 // Keep in sync with version in `rust-toolchain.toml` and `.github/workflows/ci.yml`
-const NIGHTLY: &str = "nightly-2024-09-06";
+const NIGHTLY: &str = "nightly-2026-05-29";
 
+mod bench;
 mod cargo;
 mod ci;
 mod doc;
 #[cfg(feature = "default")]
 mod release;
+mod semver;
+mod spec_links;
 #[cfg(feature = "default")]
 mod util;
 
+use bench::BenchTask;
 use cargo::Package;
 use ci::{CiArgs, CiTask};
 use doc::DocTask;
 #[cfg(feature = "default")]
 use release::{ReleaseArgs, ReleaseTask};
+use semver::{SemverArgs, SemverTask};
+use spec_links::{SpecLinksArgs, SpecLinksTask};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -49,6 +56,12 @@ enum Command {
     #[cfg(feature = "default")]
     #[clap(alias = "publish")]
     Release(ReleaseArgs),
+    /// Run benchmarks
+    Bench(BenchTask),
+    /// Run semver checks
+    Semver(SemverArgs),
+    /// Interact with spec links
+    SpecLinks(SpecLinksArgs),
 }
 
 fn main() -> Result<()> {
@@ -63,6 +76,15 @@ fn main() -> Result<()> {
             let mut task = ReleaseTask::new(args.package, args.version, args.dry_run)?;
             task.run()
         }
+        Command::Bench(bench) => bench.run(),
+        Command::Semver(args) => {
+            let semver = SemverTask::new(args.cmd, args.no_color)?;
+            semver.run()
+        }
+        Command::SpecLinks(args) => {
+            let spec_links = SpecLinksTask::new(args.cmd)?;
+            spec_links.run()
+        }
     }
 }
 
@@ -75,14 +97,19 @@ struct Metadata {
 
 impl Metadata {
     /// Load a new `Metadata` from the command line.
-    pub fn load() -> Result<Metadata> {
-        let metadata_json = cmd!("cargo metadata --no-deps --format-version 1").read()?;
+    pub fn load(sh: &Shell) -> Result<Metadata> {
+        let metadata_json = cmd!(sh, "cargo metadata --no-deps --format-version 1").read()?;
         Ok(from_json_str(&metadata_json)?)
     }
 
     /// Find the package with the given name.
     pub fn find_package(&self, name: &str) -> Option<&Package> {
         self.packages.iter().find(|p| p.name == name)
+    }
+
+    /// Path to the `crates` directory in the workspace.
+    pub(crate) fn crates_path(&self) -> PathBuf {
+        self.workspace_root.join("crates")
     }
 }
 
@@ -96,11 +123,11 @@ struct Config {
 #[cfg(feature = "default")]
 impl Config {
     /// Load a new `Config` from `config.toml`.
-    fn load() -> Result<Self> {
+    fn load(sh: &Shell) -> Result<Self> {
         use std::{env, path::Path};
 
         let path = Path::new(&env!("CARGO_MANIFEST_DIR")).join("config.toml");
-        let config = xshell::read_file(path)?;
+        let config = sh.read_file(path)?;
         Ok(toml::from_str(&config)?)
     }
 }
@@ -117,7 +144,7 @@ struct GithubConfig {
 
 #[macro_export]
 macro_rules! cmd {
-    ($cmd:tt) => {
-        xshell::cmd!($cmd).echo_cmd(false)
+    ($sh: expr, $cmd:tt) => {
+        xshell::cmd!($sh, $cmd).quiet()
     };
 }

@@ -1,12 +1,13 @@
 //! Types for the [`m.policy.rule.server`] event.
 //!
-//! [`m.policy.rule.server`]: https://spec.matrix.org/latest/client-server-api/#mpolicyruleserver
+//! [`m.policy.rule.server`]: https://spec.matrix.org/v1.18/client-server-api/#mpolicyruleserver
 
+use ruma_common::room_version_rules::RedactionRules;
 use ruma_macros::EventContent;
 use serde::{Deserialize, Serialize};
 
 use super::{PolicyRuleEventContent, PossiblyRedactedPolicyRuleEventContent};
-use crate::{EventContent, PossiblyRedactedStateEventContent, StateEventType};
+use crate::{PossiblyRedactedStateEventContent, RedactContent, StateEventType, StaticEventContent};
 
 /// The content of an `m.policy.rule.server` event.
 ///
@@ -23,14 +24,37 @@ pub struct PolicyRuleServerEventContent(pub PolicyRuleEventContent);
 #[allow(clippy::exhaustive_structs)]
 pub struct PossiblyRedactedPolicyRuleServerEventContent(pub PossiblyRedactedPolicyRuleEventContent);
 
-impl EventContent for PossiblyRedactedPolicyRuleServerEventContent {
-    type EventType = StateEventType;
+impl PossiblyRedactedStateEventContent for PossiblyRedactedPolicyRuleServerEventContent {
+    type StateKey = String;
 
-    fn event_type(&self) -> Self::EventType {
+    fn event_type(&self) -> StateEventType {
         StateEventType::PolicyRuleServer
     }
 }
 
-impl PossiblyRedactedStateEventContent for PossiblyRedactedPolicyRuleServerEventContent {
-    type StateKey = String;
+impl StaticEventContent for PossiblyRedactedPolicyRuleServerEventContent {
+    const TYPE: &'static str = PolicyRuleServerEventContent::TYPE;
+    type IsPrefix = <PolicyRuleServerEventContent as StaticEventContent>::IsPrefix;
+}
+
+impl RedactContent for PossiblyRedactedPolicyRuleServerEventContent {
+    type Redacted = Self;
+
+    fn redact(self, _rules: &RedactionRules) -> Self::Redacted {
+        Self(PossiblyRedactedPolicyRuleEventContent::empty())
+    }
+}
+
+impl From<PolicyRuleServerEventContent> for PossiblyRedactedPolicyRuleServerEventContent {
+    fn from(value: PolicyRuleServerEventContent) -> Self {
+        let PolicyRuleServerEventContent(policy) = value;
+        Self(policy.into())
+    }
+}
+
+impl From<RedactedPolicyRuleServerEventContent> for PossiblyRedactedPolicyRuleServerEventContent {
+    fn from(value: RedactedPolicyRuleServerEventContent) -> Self {
+        let RedactedPolicyRuleServerEventContent {} = value;
+        Self(PossiblyRedactedPolicyRuleEventContent::empty())
+    }
 }

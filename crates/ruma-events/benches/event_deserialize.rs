@@ -6,11 +6,11 @@
 
 #![allow(unused_imports, dead_code)]
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use ruma_common::serde::Raw;
 use ruma_events::{
-    room::power_levels::RoomPowerLevelsEventContent, AnyStateEvent, AnyTimelineEvent,
-    OriginalStateEvent,
+    AnyStateEvent, AnyTimelineEvent, OriginalStateEvent,
+    room::power_levels::RoomPowerLevelsEventContent,
 };
 use serde_json::json;
 
@@ -53,7 +53,7 @@ fn deserialize_any_room_event(c: &mut Criterion) {
     c.bench_function("deserialize to `AnyTimelineEvent`", |b| {
         b.iter(|| {
             let _ = serde_json::from_value::<AnyTimelineEvent>(json_data.clone()).unwrap();
-        })
+        });
     });
 }
 
@@ -63,7 +63,7 @@ fn deserialize_any_state_event(c: &mut Criterion) {
     c.bench_function("deserialize to `AnyStateEvent`", |b| {
         b.iter(|| {
             let _ = serde_json::from_value::<AnyStateEvent>(json_data.clone()).unwrap();
-        })
+        });
     });
 }
 
@@ -76,7 +76,7 @@ fn deserialize_specific_event(c: &mut Criterion) {
                 json_data.clone(),
             )
             .unwrap();
-        })
+        });
     });
 }
 

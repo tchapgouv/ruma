@@ -5,8 +5,7 @@ use crate::PrivOwnedStr;
 
 /// The payload for a server notice message.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
-#[serde(tag = "msgtype", rename = "m.server_notice")]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct ServerNoticeMessageEventContent {
     /// A human-readable description of the notice.
     pub body: String,
@@ -36,7 +35,7 @@ impl ServerNoticeMessageEventContent {
 
 /// Types of server notices.
 #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/doc/string_enum.md"))]
-#[derive(Clone, PartialEq, Eq, StringEnum)]
+#[derive(Clone, StringEnum)]
 #[non_exhaustive]
 pub enum ServerNoticeType {
     /// The server has exceeded some limit which requires the server administrator to intervene.
@@ -49,7 +48,7 @@ pub enum ServerNoticeType {
 
 /// Types of usage limits.
 #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/doc/string_enum.md"))]
-#[derive(Clone, PartialEq, Eq, StringEnum)]
+#[derive(Clone, StringEnum)]
 #[ruma_enum(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum LimitType {

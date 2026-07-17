@@ -2,9 +2,9 @@ use std::{collections::BTreeMap, fmt, marker::PhantomData};
 
 use js_int::{Int, UInt};
 use serde::{
+    Deserialize, Serialize,
     de::{self, Deserializer, IntoDeserializer as _, MapAccess, Visitor},
     ser::Serializer,
-    Deserialize, Serialize,
 };
 
 /// Serde deserialization decorator to map empty Strings to None,
@@ -60,7 +60,7 @@ where
 {
     struct F64OrStringVisitor;
 
-    impl<'de> Visitor<'de> for F64OrStringVisitor {
+    impl Visitor<'_> for F64OrStringVisitor {
         type Value = f64;
 
         fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -134,7 +134,7 @@ where
 {
     struct IntOrStringVisitor;
 
-    impl<'de> Visitor<'de> for IntOrStringVisitor {
+    impl Visitor<'_> for IntOrStringVisitor {
         type Value = Int;
 
         fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -254,7 +254,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use js_int::{int, Int};
+    use js_int::{Int, int};
     use serde::Deserialize;
 
     use super::deserialize_v1_powerlevel;

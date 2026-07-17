@@ -1,16 +1,18 @@
 //! Types for the [`m.room_key`] event.
 //!
-//! [`m.room_key`]: https://spec.matrix.org/latest/client-server-api/#mroom_key
+//! [`m.room_key`]: https://spec.matrix.org/v1.18/client-server-api/#mroom_key
 
 use ruma_common::{EventEncryptionAlgorithm, OwnedRoomId};
 use ruma_macros::EventContent;
 use serde::{Deserialize, Serialize};
 
+pub mod withheld;
+
 /// The content of an `m.room_key` event.
 ///
 /// Typically encrypted as an `m.room.encrypted` event, then sent as a to-device event.
 #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 #[ruma_event(type = "m.room_key", kind = ToDevice)]
 pub struct ToDeviceRoomKeyEventContent {
     /// The encryption algorithm the key in this event is to be used with.
@@ -61,8 +63,8 @@ impl ToDeviceRoomKeyEventContent {
 
 #[cfg(test)]
 mod tests {
-    use ruma_common::owned_room_id;
-    use serde_json::{json, to_value as to_json_value};
+    use ruma_common::{canonical_json::assert_to_canonical_json_eq, owned_room_id};
+    use serde_json::json;
 
     use super::ToDeviceRoomKeyEventContent;
     use crate::EventEncryptionAlgorithm;
@@ -79,8 +81,8 @@ mod tests {
         };
 
         #[cfg(not(feature = "unstable-msc3061"))]
-        assert_eq!(
-            to_json_value(content).unwrap(),
+        assert_to_canonical_json_eq!(
+            content,
             json!({
                 "algorithm": "m.megolm.v1.aes-sha2",
                 "room_id": "!testroomid:example.org",
@@ -90,8 +92,8 @@ mod tests {
         );
 
         #[cfg(feature = "unstable-msc3061")]
-        assert_eq!(
-            to_json_value(content).unwrap(),
+        assert_to_canonical_json_eq!(
+            content,
             json!({
                 "algorithm": "m.megolm.v1.aes-sha2",
                 "room_id": "!testroomid:example.org",

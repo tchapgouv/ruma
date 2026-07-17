@@ -1,30 +1,27 @@
 [package]
 name = "ruma-identity-service-api"
-version = "0.9.0"
+version = "0.15.0"
 description = "Types for the endpoints in the Matrix identity service API."
 homepage = "https://ruma.dev/"
 keywords = ["matrix", "chat", "messaging", "ruma"]
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/ruma/ruma"
-edition = "2021"
+edition = "2024"
 rust-version = { workspace = true }
 
 [package.metadata.docs.rs]
 all-features = true
 
 [features]
-unstable-exhaustive-types = []
 client = []
 server = []
 
 [dependencies]
 js_int = { workspace = true, features = ["serde"] }
 ruma-common = { workspace = true, features = ["api"] }
+ruma-events = { workspace = true }
 serde = { workspace = true }
-
-[dev-dependencies]
-serde_json = { workspace = true }
 
 [lints]
 workspace = true

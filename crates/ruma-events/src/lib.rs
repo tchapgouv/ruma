@@ -104,10 +104,13 @@
 
 #![warn(missing_docs)]
 
-use std::{collections::BTreeSet, fmt};
+#[cfg(feature = "unstable-uniffi")]
+uniffi::setup_scaffolding!();
 
-use ruma_common::{EventEncryptionAlgorithm, OwnedUserId, RoomVersionId};
-use serde::{de::IgnoredAny, Deserialize, Serialize, Serializer};
+use std::collections::BTreeSet;
+
+use ruma_common::{EventEncryptionAlgorithm, OwnedUserId, room_version_rules::RedactionRules};
+use serde::{Deserialize, Serialize, Serializer, de::IgnoredAny};
 
 // Needs to be public for trybuild tests
 #[doc(hidden)]
@@ -145,6 +148,8 @@ pub mod beacon;
 pub mod beacon_info;
 pub mod call;
 pub mod direct;
+#[cfg(feature = "unstable-msc4359")]
+pub mod do_not_disturb;
 pub mod dummy;
 #[cfg(feature = "unstable-msc3954")]
 pub mod emote;
@@ -158,14 +163,19 @@ pub mod identity_server;
 pub mod ignored_user_list;
 #[cfg(feature = "unstable-msc3552")]
 pub mod image;
+#[cfg(feature = "unstable-msc2545")]
+pub mod image_pack;
+pub mod invite_permission_config;
 pub mod key;
+pub mod key_backup;
 #[cfg(feature = "unstable-msc3488")]
 pub mod location;
 pub mod marked_unread;
-#[cfg(feature = "unstable-msc1767")]
+#[cfg(feature = "unstable-msc4278")]
+pub mod media_preview_config;
+#[cfg(feature = "unstable-msc4171")]
+pub mod member_hints;
 pub mod message;
-#[cfg(feature = "unstable-pdu")]
-pub mod pdu;
 pub mod policy;
 #[cfg(feature = "unstable-msc3381")]
 pub mod poll;
@@ -173,14 +183,23 @@ pub mod presence;
 pub mod push_rules;
 pub mod reaction;
 pub mod receipt;
+pub mod recent_emoji;
 pub mod relation;
 pub mod room;
 pub mod room_key;
+#[cfg(feature = "unstable-msc4268")]
+pub mod room_key_bundle;
 pub mod room_key_request;
+#[cfg(feature = "unstable-msc4310")]
+pub mod rtc;
 pub mod secret;
 pub mod secret_storage;
 pub mod space;
+#[cfg(feature = "unstable-msc3230")]
+pub mod space_order;
 pub mod sticker;
+#[cfg(feature = "unstable-msc4471")]
+pub mod stream;
 pub mod tag;
 pub mod typing;
 #[cfg(feature = "unstable-msc3553")]
@@ -194,7 +213,10 @@ pub use self::{
     kinds::*,
     relation::{BundledMessageLikeRelations, BundledStateRelations},
     state_key::EmptyStateKey,
-    unsigned::{MessageLikeUnsigned, RedactedUnsigned, StateUnsigned, UnsignedRoomRedactionEvent},
+    unsigned::{
+        AnyRedactionEvent, MessageLikeUnsigned, RedactedUnsigned, StateUnsigned,
+        UnsignedRoomRedactionEvent,
+    },
 };
 
 /// Trait to define the behavior of redact an event's content object.
@@ -204,9 +226,9 @@ pub trait RedactContent {
 
     /// Transform `self` into a redacted form (removing most or all fields) according to the spec.
     ///
-    /// A small number of events have room-version specific redaction behavior, so a version has to
-    /// be specified.
-    fn redact(self, version: &RoomVersionId) -> Self::Redacted;
+    /// A small number of events have room-version specific redaction behavior, so a
+    /// [`RedactionRules`] has to be specified.
+    fn redact(self, rules: &RedactionRules) -> Self::Redacted;
 }
 
 /// Helper struct to determine the event kind from a `serde_json::value::RawValue`.
@@ -286,15 +308,4 @@ impl Mentions {
     }
 }
 
-// Wrapper around `Box<str>` that cannot be used in a meaningful way outside of
-// this crate. Used for string enums because their `_Custom` variant can't be
-// truly private (only `#[doc(hidden)]`).
-#[doc(hidden)]
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct PrivOwnedStr(Box<str>);
-
-impl fmt::Debug for PrivOwnedStr {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
-    }
-}
+ruma_common::priv_owned_str!(uniffi);

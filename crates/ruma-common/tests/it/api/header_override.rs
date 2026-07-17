@@ -1,22 +1,24 @@
 #![allow(clippy::exhaustive_structs)]
 
-use http::header::{Entry, CONTENT_TYPE, LOCATION};
+use std::borrow::Cow;
+
+use http::header::{CONTENT_TYPE, Entry, LOCATION};
 use ruma_common::{
     api::{
-        request, response, MatrixVersion, Metadata, OutgoingRequest as _, OutgoingResponse as _,
-        SendAccessToken,
+        MatrixVersion, OutgoingRequest as _, OutgoingResponse as _, SupportedVersions,
+        auth_scheme::NoAuthentication, request, response,
     },
     metadata,
 };
 
-const METADATA: Metadata = metadata! {
+metadata! {
     method: GET,
     rate_limited: false,
-    authentication: None,
+    authentication: NoAuthentication,
     history: {
         unstable => "/_matrix/my/endpoint",
     }
-};
+}
 
 /// Request type for the `no_fields` endpoint.
 #[request]
@@ -55,12 +57,11 @@ fn response_content_type_override() {
 #[test]
 fn request_content_type_override() {
     let req = Request { location: None, stuff: "magic".into() };
+    let supported =
+        SupportedVersions { versions: [MatrixVersion::V1_1].into(), features: Default::default() };
+
     let mut http_req = req
-        .try_into_http_request::<Vec<u8>>(
-            "https://homeserver.tld",
-            SendAccessToken::None,
-            &[MatrixVersion::V1_1],
-        )
+        .try_into_http_request::<Vec<u8>>("https://homeserver.tld", (), Cow::Owned(supported))
         .unwrap();
 
     assert_eq!(

@@ -1,12 +1,13 @@
 //! Types for the [`m.policy.rule.user`] event.
 //!
-//! [`m.policy.rule.user`]: https://spec.matrix.org/latest/client-server-api/#mpolicyruleuser
+//! [`m.policy.rule.user`]: https://spec.matrix.org/v1.18/client-server-api/#mpolicyruleuser
 
+use ruma_common::room_version_rules::RedactionRules;
 use ruma_macros::EventContent;
 use serde::{Deserialize, Serialize};
 
 use super::{PolicyRuleEventContent, PossiblyRedactedPolicyRuleEventContent};
-use crate::{EventContent, PossiblyRedactedStateEventContent, StateEventType};
+use crate::{PossiblyRedactedStateEventContent, RedactContent, StateEventType, StaticEventContent};
 
 /// The content of an `m.policy.rule.user` event.
 ///
@@ -23,14 +24,37 @@ pub struct PolicyRuleUserEventContent(pub PolicyRuleEventContent);
 #[allow(clippy::exhaustive_structs)]
 pub struct PossiblyRedactedPolicyRuleUserEventContent(pub PossiblyRedactedPolicyRuleEventContent);
 
-impl EventContent for PossiblyRedactedPolicyRuleUserEventContent {
-    type EventType = StateEventType;
+impl PossiblyRedactedStateEventContent for PossiblyRedactedPolicyRuleUserEventContent {
+    type StateKey = String;
 
-    fn event_type(&self) -> Self::EventType {
+    fn event_type(&self) -> StateEventType {
         StateEventType::PolicyRuleUser
     }
 }
 
-impl PossiblyRedactedStateEventContent for PossiblyRedactedPolicyRuleUserEventContent {
-    type StateKey = String;
+impl StaticEventContent for PossiblyRedactedPolicyRuleUserEventContent {
+    const TYPE: &'static str = PolicyRuleUserEventContent::TYPE;
+    type IsPrefix = <PolicyRuleUserEventContent as StaticEventContent>::IsPrefix;
+}
+
+impl RedactContent for PossiblyRedactedPolicyRuleUserEventContent {
+    type Redacted = Self;
+
+    fn redact(self, _rules: &RedactionRules) -> Self::Redacted {
+        Self(PossiblyRedactedPolicyRuleEventContent::empty())
+    }
+}
+
+impl From<PolicyRuleUserEventContent> for PossiblyRedactedPolicyRuleUserEventContent {
+    fn from(value: PolicyRuleUserEventContent) -> Self {
+        let PolicyRuleUserEventContent(policy) = value;
+        Self(policy.into())
+    }
+}
+
+impl From<RedactedPolicyRuleUserEventContent> for PossiblyRedactedPolicyRuleUserEventContent {
+    fn from(value: RedactedPolicyRuleUserEventContent) -> Self {
+        let RedactedPolicyRuleUserEventContent {} = value;
+        Self(PossiblyRedactedPolicyRuleEventContent::empty())
+    }
 }

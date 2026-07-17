@@ -3,7 +3,8 @@
 use std::collections::BTreeMap;
 
 use ruma_common::{
-    serde::Base64, MilliSecondsSinceUnixEpoch, OwnedServerName, OwnedServerSigningKeyId,
+    MilliSecondsSinceUnixEpoch, OwnedServerName, OwnedServerSigningKeyId, ServerSignatures,
+    serde::Base64,
 };
 use serde::{Deserialize, Serialize};
 
@@ -17,7 +18,7 @@ pub mod get_server_versions;
 
 /// Public key of the homeserver for verifying digital signatures.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct VerifyKey {
     /// The unpadded base64-encoded key.
     pub key: Base64,
@@ -32,7 +33,7 @@ impl VerifyKey {
 
 /// A key the server used to use, but stopped using.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct OldVerifyKey {
     /// Timestamp when this key expired.
     pub expired_ts: MilliSecondsSinceUnixEpoch,
@@ -50,7 +51,7 @@ impl OldVerifyKey {
 
 /// Queried server key, signed by the notary server.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct ServerSigningKeys {
     /// DNS name of the homeserver.
     pub server_name: OwnedServerName,
@@ -67,7 +68,7 @@ pub struct ServerSigningKeys {
     /// Digital signatures of this object signed using the verify_keys.
     ///
     /// Map of server name to keys by key ID.
-    pub signatures: BTreeMap<OwnedServerName, BTreeMap<OwnedServerSigningKeyId, String>>,
+    pub signatures: ServerSignatures,
 
     /// Timestamp when the keys should be refreshed.
     ///
@@ -84,7 +85,7 @@ impl ServerSigningKeys {
             server_name,
             verify_keys: BTreeMap::new(),
             old_verify_keys: BTreeMap::new(),
-            signatures: BTreeMap::new(),
+            signatures: ServerSignatures::default(),
             valid_until_ts,
         }
     }

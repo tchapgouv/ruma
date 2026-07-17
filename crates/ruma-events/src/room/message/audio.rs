@@ -6,14 +6,13 @@ use serde::{Deserialize, Serialize};
 
 use super::FormattedBody;
 use crate::room::{
-    message::media_caption::{caption, formatted_caption},
     EncryptedFile, MediaSource,
+    message::media_caption::{caption, formatted_caption},
 };
 
 /// The payload for an audio message.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
-#[serde(tag = "msgtype", rename = "m.audio")]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct AudioMessageEventContent {
     /// The textual representation of this message.
     ///
@@ -95,7 +94,7 @@ impl AudioMessageEventContent {
         Self { info: info.into(), ..self }
     }
 
-    /// Computes the filename for the audio file as defined by the [spec](https://spec.matrix.org/latest/client-server-api/#media-captions).
+    /// Computes the filename for the audio file as defined by the [spec](https://spec.matrix.org/v1.18/client-server-api/#media-captions).
     ///
     /// This differs from the `filename` field as this method falls back to the `body` field when
     /// the `filename` field is not set.
@@ -103,7 +102,7 @@ impl AudioMessageEventContent {
         self.filename.as_deref().unwrap_or(&self.body)
     }
 
-    /// Returns the caption for the audio as defined by the [spec](https://spec.matrix.org/latest/client-server-api/#media-captions).
+    /// Returns the caption for the audio as defined by the [spec](https://spec.matrix.org/v1.18/client-server-api/#media-captions).
     ///
     /// In short, this is the `body` field if the `filename` field exists and has a different value,
     /// otherwise the media file does not have a caption.
@@ -111,7 +110,7 @@ impl AudioMessageEventContent {
         caption(&self.body, self.filename.as_deref())
     }
 
-    /// Returns the formatted caption for the audio as defined by the [spec](https://spec.matrix.org/latest/client-server-api/#media-captions).
+    /// Returns the formatted caption for the audio as defined by the [spec](https://spec.matrix.org/v1.18/client-server-api/#media-captions).
     ///
     /// This is the same as `caption`, but returns the formatted body instead of the plain body.
     pub fn formatted_caption(&self) -> Option<&FormattedBody> {
@@ -121,7 +120,7 @@ impl AudioMessageEventContent {
 
 /// Metadata about an audio clip.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct AudioInfo {
     /// The duration of the audio in milliseconds.
     #[serde(
@@ -153,7 +152,7 @@ impl AudioInfo {
 /// [msc]: https://github.com/matrix-org/matrix-spec-proposals/blob/83f6c5b469c1d78f714e335dcaa25354b255ffa5/proposals/3245-voice-messages.md
 #[cfg(feature = "unstable-msc3245-v1-compat")]
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct UnstableAudioDetailsContentBlock {
     /// The duration of the audio in milliseconds.
     ///
@@ -183,7 +182,7 @@ impl UnstableAudioDetailsContentBlock {
 /// [msc]: https://github.com/matrix-org/matrix-spec-proposals/blob/83f6c5b469c1d78f714e335dcaa25354b255ffa5/proposals/3245-voice-messages.md
 #[cfg(feature = "unstable-msc3245-v1-compat")]
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct UnstableVoiceContentBlock {}
 
 #[cfg(feature = "unstable-msc3245-v1-compat")]

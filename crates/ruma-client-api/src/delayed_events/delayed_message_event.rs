@@ -8,28 +8,28 @@ pub mod unstable {
     //! [MSC]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
 
     use ruma_common::{
-        api::{request, response, Metadata},
+        OwnedRoomId, OwnedTransactionId,
+        api::{auth_scheme::AccessToken, request, response},
         metadata,
         serde::Raw,
-        OwnedRoomId, OwnedTransactionId,
     };
     use ruma_events::{AnyMessageLikeEventContent, MessageLikeEventContent, MessageLikeEventType};
     use serde_json::value::to_raw_value as to_raw_json_value;
 
     use crate::delayed_events::DelayParameters;
 
-    const METADATA: Metadata = metadata! {
+    metadata! {
         method: PUT,
         rate_limited: false,
         authentication: AccessToken,
         history: {
             // We use the unstable prefix for the delay query parameter but the stable v3 endpoint.
-            unstable => "/_matrix/client/v3/rooms/:room_id/send/:event_type/:txn_id",
+            unstable => "/_matrix/client/v3/rooms/{room_id}/send/{event_type}/{txn_id}",
         }
-    };
+    }
     /// Request type for the [`delayed_message_event`](crate::delayed_events::delayed_message_event)
     /// endpoint.
-    #[request(error = crate::Error)]
+    #[request]
     pub struct Request {
         /// The room to send the event to.
         #[ruma_api(path)]
@@ -47,7 +47,7 @@ pub mod unstable {
         ///
         /// It will be used by the server to ensure idempotency of requests.
         ///
-        /// [access token is refreshed]: https://spec.matrix.org/latest/client-server-api/#refreshing-access-tokens
+        /// [access token is refreshed]: https://spec.matrix.org/v1.18/client-server-api/#refreshing-access-tokens
         #[ruma_api(path)]
         pub txn_id: OwnedTransactionId,
 
@@ -62,7 +62,7 @@ pub mod unstable {
 
     /// Response type for the
     /// [`delayed_message_event`](crate::delayed_events::delayed_message_event) endpoint.
-    #[response(error = crate::Error)]
+    #[response]
     pub struct Response {
         /// The `delay_id` generated for this delayed event. Used to interact with delayed events.
         pub delay_id: String,
@@ -117,12 +117,16 @@ pub mod unstable {
 
     #[cfg(all(test, feature = "client"))]
     mod tests {
+        use std::borrow::Cow;
+
         use ruma_common::{
-            api::{MatrixVersion, OutgoingRequest, SendAccessToken},
+            api::{
+                MatrixVersion, OutgoingRequest, SupportedVersions, auth_scheme::SendAccessToken,
+            },
             owned_room_id,
         };
         use ruma_events::room::message::RoomMessageEventContent;
-        use serde_json::{json, Value as JsonValue};
+        use serde_json::{Value as JsonValue, json};
         use web_time::Duration;
 
         use super::Request;
@@ -131,6 +135,10 @@ pub mod unstable {
         #[test]
         fn serialize_delayed_message_request() {
             let room_id = owned_room_id!("!roomid:example.org");
+            let supported = SupportedVersions {
+                versions: [MatrixVersion::V1_1].into(),
+                features: Default::default(),
+            };
 
             let req = Request::new(
                 room_id,
@@ -143,7 +151,7 @@ pub mod unstable {
                 .try_into_http_request(
                     "https://homeserver.tld",
                     SendAccessToken::IfRequired("auth_tok"),
-                    &[MatrixVersion::V1_1],
+                    Cow::Owned(supported),
                 )
                 .unwrap();
             let (parts, body) = request.into_parts();

@@ -5,26 +5,26 @@
 pub mod v1 {
     //! `/v1/` ([spec])
     //!
-    //! [spec]: https://spec.matrix.org/latest/server-server-api/#post_matrixfederationv1userkeysclaim
+    //! [spec]: https://spec.matrix.org/v1.18/server-server-api/#post_matrixfederationv1userkeysclaim
 
     use std::collections::BTreeMap;
 
     use ruma_common::{
-        api::{request, response, Metadata},
+        OneTimeKeyAlgorithm, OwnedDeviceId, OwnedOneTimeKeyId, OwnedUserId,
+        api::{request, response},
         encryption::OneTimeKey,
         metadata,
         serde::Raw,
-        DeviceKeyAlgorithm, OwnedDeviceId, OwnedDeviceKeyId, OwnedUserId,
     };
 
-    const METADATA: Metadata = metadata! {
+    use crate::authentication::ServerSignatures;
+
+    metadata! {
         method: POST,
         rate_limited: false,
         authentication: ServerSignatures,
-        history: {
-            1.0 => "/_matrix/federation/v1/user/keys/claim",
-        }
-    };
+        path: "/_matrix/federation/v1/user/keys/claim",
+    }
 
     /// Request type for the `claim_keys` endpoint.
     #[request]
@@ -55,9 +55,11 @@ pub mod v1 {
     }
 
     /// A claim for one time keys
-    pub type OneTimeKeyClaims = BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, DeviceKeyAlgorithm>>;
+    pub type OneTimeKeyClaims = BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, OneTimeKeyAlgorithm>>;
 
     /// One time keys for use in pre-key messages
-    pub type OneTimeKeys =
-        BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, BTreeMap<OwnedDeviceKeyId, Raw<OneTimeKey>>>>;
+    pub type OneTimeKeys = BTreeMap<
+        OwnedUserId,
+        BTreeMap<OwnedDeviceId, BTreeMap<OwnedOneTimeKeyId, Raw<OneTimeKey>>>,
+    >;
 }

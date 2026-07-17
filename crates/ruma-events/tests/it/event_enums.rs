@@ -1,13 +1,13 @@
 use assert_matches2::assert_matches;
 use js_int::uint;
 use ruma_common::{
-    serde::{CanBeEmpty, Raw},
     MilliSecondsSinceUnixEpoch, VoipVersionId,
+    serde::{CanBeEmpty, Raw},
 };
 use ruma_events::{
-    secret_storage::key::{SecretStorageEncryptionAlgorithm, SecretStorageV1AesHmacSha2Properties},
     AnyGlobalAccountDataEventContent, AnyMessageLikeEvent, AnyMessageLikeEventContent,
     MessageLikeEvent, RawExt as _,
+    secret_storage::key::{SecretStorageEncryptionAlgorithm, SecretStorageV1AesHmacSha2Properties},
 };
 use serde_json::{from_value as from_json_value, json, value::to_raw_value as to_raw_json_value};
 
@@ -64,7 +64,7 @@ fn text_msgtype_plain_text_deserialization_as_any() {
     let raw_event: Raw<AnyMessageLikeEventContent> =
         Raw::from_json_string(serialized.to_string()).unwrap();
 
-    let event = raw_event.deserialize_with_type("m.room.message".into()).unwrap();
+    let event = raw_event.deserialize_with_type("m.room.message").unwrap();
 
     assert_matches!(event, AnyMessageLikeEventContent::RoomMessage(content));
     assert_eq!(content.body(), "Hello world!");
@@ -83,7 +83,7 @@ fn secret_storage_key_deserialization_as_any() {
     let raw_event: Raw<AnyGlobalAccountDataEventContent> =
         Raw::from_json_string(serialized.to_string()).unwrap();
 
-    let event = raw_event.deserialize_with_type("m.secret_storage.key.test".into()).unwrap();
+    let event = raw_event.deserialize_with_type("m.secret_storage.key.test").unwrap();
 
     assert_matches!(event, AnyGlobalAccountDataEventContent::SecretStorageKey(content));
 

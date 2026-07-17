@@ -1,24 +1,26 @@
-// This tests that the "body" fields are moved after all other fields because they
-// consume the request/response.
+//! This tests that the "body" fields are moved after all other fields because they
+//! consume the request/response.
+#![allow(unexpected_cfgs)]
 
 pub mod newtype_body {
     use http::header::CONTENT_TYPE;
     use ruma_common::{
-        api::{request, response, Metadata},
-        metadata, OwnedUserId,
+        OwnedUserId,
+        api::{auth_scheme::NoAuthentication, request, response},
+        metadata,
     };
 
     #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
     pub struct Foo;
 
-    const METADATA: Metadata = metadata! {
+    metadata! {
         method: POST,
         rate_limited: false,
-        authentication: None,
+        authentication: NoAuthentication,
         history: {
-            unstable => "/_matrix/foo/:bar/",
+            unstable => "/_matrix/foo/{bar}/",
         }
-    };
+    }
 
     /// Request type for the `my_endpoint` endpoint.
     #[request]
@@ -50,18 +52,19 @@ pub mod newtype_body {
 pub mod raw_body {
     use http::header::CONTENT_TYPE;
     use ruma_common::{
-        api::{request, response, Metadata},
-        metadata, OwnedUserId,
+        OwnedUserId,
+        api::{auth_scheme::NoAuthentication, request, response},
+        metadata,
     };
 
-    const METADATA: Metadata = metadata! {
+    metadata! {
         method: POST,
         rate_limited: false,
-        authentication: None,
+        authentication: NoAuthentication,
         history: {
-            unstable => "/_matrix/foo/:bar/",
+            unstable => "/_matrix/foo/{bar}/",
         }
-    };
+    }
 
     /// Request type for the `my_endpoint` endpoint.
     #[request]
@@ -93,21 +96,22 @@ pub mod raw_body {
 pub mod plain {
     use http::header::CONTENT_TYPE;
     use ruma_common::{
-        api::{request, response, Metadata},
-        metadata, OwnedUserId,
+        OwnedUserId,
+        api::{auth_scheme::NoAuthentication, request, response},
+        metadata,
     };
 
     #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
     pub struct Foo;
 
-    const METADATA: Metadata = metadata! {
+    metadata! {
         method: POST,
         rate_limited: false,
-        authentication: None,
+        authentication: NoAuthentication,
         history: {
-            unstable => "/_matrix/foo/:bar/",
+            unstable => "/_matrix/foo/{bar}/",
         }
-    };
+    }
 
     /// Request type for the `my_endpoint` endpoint.
     #[request]

@@ -1,22 +1,27 @@
 //! Types for the [`m.room.encrypted`] event.
 //!
-//! [`m.room.encrypted`]: https://spec.matrix.org/latest/client-server-api/#mroomencrypted
+//! [`m.room.encrypted`]: https://spec.matrix.org/v1.18/client-server-api/#mroomencrypted
 
 use std::{borrow::Cow, collections::BTreeMap};
 
 use js_int::UInt;
-use ruma_common::{serde::JsonObject, OwnedDeviceId, OwnedEventId};
+use ruma_common::{OwnedDeviceId, OwnedEventId, serde::JsonObject};
 use ruma_macros::EventContent;
 use serde::{Deserialize, Serialize};
 
 use super::message;
-use crate::relation::{Annotation, CustomRelation, InReplyTo, Reference, RelationType, Thread};
+use crate::{
+    relation::{Annotation, CustomRelation, InReplyTo, Reference, RelationType, Reply, Thread},
+    room::message::RelationWithoutReplacement,
+};
 
 mod relation_serde;
+#[cfg(feature = "unstable-msc4362")]
+pub mod unstable_state;
 
 /// The content of an `m.room.encrypted` event.
 #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 #[ruma_event(type = "m.room.encrypted", kind = MessageLike)]
 pub struct RoomEncryptedEventContent {
     /// Algorithm-specific fields.
@@ -43,7 +48,7 @@ impl From<EncryptedEventScheme> for RoomEncryptedEventContent {
 
 /// The to-device content of an `m.room.encrypted` event.
 #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 #[ruma_event(type = "m.room.encrypted", kind = ToDevice)]
 pub struct ToDeviceRoomEncryptedEventContent {
     /// Algorithm-specific fields.
@@ -66,7 +71,7 @@ impl From<EncryptedEventScheme> for ToDeviceRoomEncryptedEventContent {
 
 /// The encryption scheme for `RoomEncryptedEventContent`.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 #[serde(tag = "algorithm")]
 pub enum EncryptedEventScheme {
     /// An event encrypted with `m.olm.v1.curve25519-aes-sha2`.
@@ -81,15 +86,13 @@ pub enum EncryptedEventScheme {
 /// Relationship information about an encrypted event.
 ///
 /// Outside of the encrypted payload to support server aggregation.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 #[allow(clippy::manual_non_exhaustive)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
+#[serde(untagged)]
 pub enum Relation {
-    /// An `m.in_reply_to` relation indicating that the event is a reply to another event.
-    Reply {
-        /// Information about another message being replied to.
-        in_reply_to: InReplyTo,
-    },
+    /// A reply to another event.
+    Reply(Reply),
 
     /// An event that replaces another event.
     Replacement(Replacement),
@@ -110,10 +113,10 @@ pub enum Relation {
 impl Relation {
     /// The type of this `Relation`.
     ///
-    /// Returns an `Option` because the `Reply` relation does not have a`rel_type` field.
+    /// Returns an `Option` because the `Reply` relation does not have a `rel_type` field.
     pub fn rel_type(&self) -> Option<RelationType> {
         match self {
-            Relation::Reply { .. } => None,
+            Relation::Reply(_) => None,
             Relation::Replacement(_) => Some(RelationType::Replacement),
             Relation::Reference(_) => Some(RelationType::Reference),
             Relation::Annotation(_) => Some(RelationType::Annotation),
@@ -142,7 +145,7 @@ impl Relation {
 impl<C> From<message::Relation<C>> for Relation {
     fn from(rel: message::Relation<C>) -> Self {
         match rel {
-            message::Relation::Reply { in_reply_to } => Self::Reply { in_reply_to },
+            message::Relation::Reply(r) => Self::Reply(r),
             message::Relation::Replacement(re) => {
                 Self::Replacement(Replacement { event_id: re.event_id })
             }
@@ -156,15 +159,25 @@ impl<C> From<message::Relation<C>> for Relation {
     }
 }
 
+impl From<RelationWithoutReplacement> for Relation {
+    fn from(value: RelationWithoutReplacement) -> Self {
+        match value {
+            RelationWithoutReplacement::Reply(r) => Self::Reply(r),
+            RelationWithoutReplacement::Thread(t) => Self::Thread(t),
+            RelationWithoutReplacement::_Custom(c) => Self::_Custom(c),
+        }
+    }
+}
+
 /// The event this relation belongs to [replaces another event].
 ///
 /// In contrast to [`relation::Replacement`](crate::relation::Replacement), this
 /// struct doesn't store the new content, since that is part of the encrypted content of an
 /// `m.room.encrypted` events.
 ///
-/// [replaces another event]: https://spec.matrix.org/latest/client-server-api/#event-replacements
+/// [replaces another event]: https://spec.matrix.org/v1.18/client-server-api/#event-replacements
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 #[serde(tag = "rel_type", rename = "m.replace")]
 pub struct Replacement {
     /// The ID of the event being replaced.
@@ -180,7 +193,7 @@ impl Replacement {
 
 /// The content of an `m.room.encrypted` event using the `m.olm.v1.curve25519-aes-sha2` algorithm.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct OlmV1Curve25519AesSha2Content {
     /// A map from the recipient Curve25519 identity key to ciphertext information.
     pub ciphertext: BTreeMap<String, CiphertextInfo>,
@@ -200,7 +213,7 @@ impl OlmV1Curve25519AesSha2Content {
 ///
 /// Used for messages encrypted with the `m.olm.v1.curve25519-aes-sha2` algorithm.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct CiphertextInfo {
     /// The encrypted payload.
     pub body: String,
@@ -222,18 +235,20 @@ impl CiphertextInfo {
 /// To create an instance of this type, first create a `MegolmV1AesSha2ContentInit` and convert it
 /// via `MegolmV1AesSha2Content::from` / `.into()`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct MegolmV1AesSha2Content {
     /// The encrypted content of the event.
     pub ciphertext: String,
 
     /// The Curve25519 key of the sender.
-    #[deprecated = "this field still needs to be sent but should not be used when received"]
-    pub sender_key: String,
+    #[deprecated = "Since Matrix 1.3, this field should still be sent but should not be used when received"]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sender_key: Option<String>,
 
     /// The ID of the sending device.
-    #[deprecated = "this field still needs to be sent but should not be used when received"]
-    pub device_id: OwnedDeviceId,
+    #[deprecated = "Since Matrix 1.3, this field should still be sent but should not be used when received"]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_id: Option<OwnedDeviceId>,
 
     /// The ID of the session used to encrypt the message.
     pub session_id: String,
@@ -264,7 +279,7 @@ impl From<MegolmV1AesSha2ContentInit> for MegolmV1AesSha2Content {
     fn from(init: MegolmV1AesSha2ContentInit) -> Self {
         let MegolmV1AesSha2ContentInit { ciphertext, sender_key, device_id, session_id } = init;
         #[allow(deprecated)]
-        Self { ciphertext, sender_key, device_id, session_id }
+        Self { ciphertext, sender_key: Some(sender_key), device_id: Some(device_id), session_id }
     }
 }
 
@@ -272,11 +287,13 @@ impl From<MegolmV1AesSha2ContentInit> for MegolmV1AesSha2Content {
 mod tests {
     use assert_matches2::assert_matches;
     use js_int::uint;
-    use ruma_common::{owned_event_id, serde::Raw};
-    use serde_json::{from_value as from_json_value, json, to_value as to_json_value};
+    use ruma_common::{
+        canonical_json::assert_to_canonical_json_eq, device_id, owned_event_id, serde::Raw,
+    };
+    use serde_json::{from_value as from_json_value, json};
 
     use super::{
-        EncryptedEventScheme, InReplyTo, MegolmV1AesSha2ContentInit, Relation,
+        EncryptedEventScheme, MegolmV1AesSha2ContentInit, Relation, Reply,
         RoomEncryptedEventContent,
     };
 
@@ -292,25 +309,26 @@ mod tests {
                 }
                 .into(),
             ),
-            relates_to: Some(Relation::Reply {
-                in_reply_to: InReplyTo { event_id: owned_event_id!("$h29iv0s8:example.com") },
-            }),
+            relates_to: Some(Relation::Reply(Reply::with_event_id(owned_event_id!(
+                "$h29iv0s8:example.com"
+            )))),
         };
 
-        let json_data = json!({
-            "algorithm": "m.megolm.v1.aes-sha2",
-            "ciphertext": "ciphertext",
-            "sender_key": "sender_key",
-            "device_id": "device_id",
-            "session_id": "session_id",
-            "m.relates_to": {
-                "m.in_reply_to": {
-                    "event_id": "$h29iv0s8:example.com"
-                }
-            },
-        });
-
-        assert_eq!(to_json_value(&key_verification_start_content).unwrap(), json_data);
+        assert_to_canonical_json_eq!(
+            key_verification_start_content,
+            json!({
+                "algorithm": "m.megolm.v1.aes-sha2",
+                "ciphertext": "ciphertext",
+                "sender_key": "sender_key",
+                "device_id": "device_id",
+                "session_id": "session_id",
+                "m.relates_to": {
+                    "m.in_reply_to": {
+                        "event_id": "$h29iv0s8:example.com"
+                    }
+                },
+            }),
+        );
     }
 
     #[test]
@@ -333,12 +351,12 @@ mod tests {
 
         assert_matches!(content.scheme, EncryptedEventScheme::MegolmV1AesSha2(scheme));
         assert_eq!(scheme.ciphertext, "ciphertext");
-        assert_eq!(scheme.sender_key, "sender_key");
-        assert_eq!(scheme.device_id, "device_id");
+        assert_eq!(scheme.sender_key.as_deref(), Some("sender_key"));
+        assert_eq!(scheme.device_id.as_deref(), Some(device_id!("device_id")));
         assert_eq!(scheme.session_id, "session_id");
 
-        assert_matches!(content.relates_to, Some(Relation::Reply { in_reply_to }));
-        assert_eq!(in_reply_to.event_id, "$h29iv0s8:example.com");
+        assert_matches!(content.relates_to, Some(Relation::Reply(reply)));
+        assert_eq!(reply.in_reply_to.event_id, "$h29iv0s8:example.com");
     }
 
     #[test]

@@ -2,15 +2,15 @@
 
 use std::net::Ipv4Addr;
 
-use ruma_macros::IdZst;
+use ruma_macros::IdDst;
 
 /// A Matrix-spec compliant [server name].
 ///
 /// It consists of a host and an optional port (separated by a colon if present).
 ///
-/// [server name]: https://spec.matrix.org/latest/appendices/#server-name
+/// [server name]: https://spec.matrix.org/v1.18/appendices/#server-name
 #[repr(transparent)]
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, IdZst)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, IdDst)]
 #[ruma_id(validate = ruma_identifiers_validation::server_name::validate)]
 pub struct ServerName(str);
 

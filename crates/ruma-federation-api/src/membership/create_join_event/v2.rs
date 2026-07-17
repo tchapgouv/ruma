@@ -1,22 +1,23 @@
 //! `/v2/` ([spec])
 //!
-//! [spec]: https://spec.matrix.org/latest/server-server-api/#put_matrixfederationv2send_joinroomideventid
+//! [spec]: https://spec.matrix.org/v1.18/server-server-api/#put_matrixfederationv2send_joinroomideventid
 
 use ruma_common::{
-    api::{request, response, Metadata},
-    metadata, OwnedEventId, OwnedRoomId,
+    OwnedEventId, OwnedRoomId,
+    api::{request, response},
+    metadata,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue as RawJsonValue;
 
-const METADATA: Metadata = metadata! {
+use crate::authentication::ServerSignatures;
+
+metadata! {
     method: PUT,
     rate_limited: false,
     authentication: ServerSignatures,
-    history: {
-        1.0 => "/_matrix/federation/v2/send_join/:room_id/:event_id",
-    }
-};
+    path: "/_matrix/federation/v2/send_join/{room_id}/{event_id}",
+}
 
 /// Request type for the `create_join_event` endpoint.
 #[request]
@@ -47,7 +48,7 @@ pub struct Request {
     /// the response `state` field, and include the auth chains for these membership events in
     /// the response `auth_chain` field.
     ///
-    /// [Client-Server `/sync` response]: https://spec.matrix.org/latest/client-server-api/#get_matrixclientv3sync
+    /// [Client-Server `/sync` response]: https://spec.matrix.org/v1.18/client-server-api/#get_matrixclientv3sync
     #[ruma_api(query)]
     #[serde(default, skip_serializing_if = "ruma_common::serde::is_default")]
     pub omit_members: bool,
@@ -76,13 +77,9 @@ impl Response {
 }
 
 /// Full state of the room.
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct RoomState {
-    #[cfg(not(feature = "unstable-unspecified"))]
-    /// The resident server's DNS name.
-    pub origin: String,
-
     /// Whether `m.room.member` events have been omitted from `state`.
     ///
     /// Defaults to `false`.
@@ -118,42 +115,9 @@ pub struct RoomState {
     pub servers_in_room: Option<Vec<String>>,
 }
 
-#[cfg(feature = "unstable-unspecified")]
-impl Default for RoomState {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl RoomState {
-    #[cfg(not(feature = "unstable-unspecified"))]
-    /// Creates an empty `RoomState` with the given `origin`.
-    ///
-    /// With the `unstable-unspecified` feature, this method doesn't take any parameters.
-    /// See [matrix-spec#374](https://github.com/matrix-org/matrix-spec/issues/374).
-    pub fn new(origin: String) -> Self {
-        Self {
-            origin,
-            auth_chain: Vec::new(),
-            state: Vec::new(),
-            event: None,
-            members_omitted: false,
-            servers_in_room: None,
-        }
-    }
-
-    #[cfg(feature = "unstable-unspecified")]
-    /// Creates an empty `RoomState` with the given `origin`.
-    ///
-    /// Without the `unstable-unspecified` feature, this method takes a parameter for the origin.
-    /// See [matrix-spec#374](https://github.com/matrix-org/matrix-spec/issues/374).
+    /// Creates an empty `RoomState`.
     pub fn new() -> Self {
-        Self {
-            auth_chain: Vec::new(),
-            state: Vec::new(),
-            event: None,
-            members_omitted: false,
-            servers_in_room: None,
-        }
+        Self::default()
     }
 }

@@ -1,21 +1,22 @@
 //! Types for the [`m.room.redaction`] event.
 //!
-//! [`m.room.redaction`]: https://spec.matrix.org/latest/client-server-api/#mroomredaction
+//! [`m.room.redaction`]: https://spec.matrix.org/v1.18/client-server-api/#mroomredaction
 
 use as_variant::as_variant;
 use js_int::Int;
-#[cfg(feature = "canonical-json")]
-use ruma_common::canonical_json::RedactionEvent;
 use ruma_common::{
-    serde::CanBeEmpty, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId,
-    OwnedTransactionId, OwnedUserId, RoomId, RoomVersionId, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId,
+    OwnedUserId, RoomId, UserId,
+    canonical_json::RedactionEvent,
+    room_version_rules::RedactionRules,
+    serde::{CanBeEmpty, JsonCastable, JsonObject},
 };
 use ruma_macros::{Event, EventContent};
 use serde::{Deserialize, Serialize};
 use tracing::error;
 
 use crate::{
-    BundledMessageLikeRelations, EventContent, MessageLikeEventType, RedactContent,
+    BundledMessageLikeRelations, MessageLikeEventContent, MessageLikeEventType, RedactContent,
     RedactedMessageLikeEventContent, RedactedUnsigned, StaticEventContent,
 };
 
@@ -32,6 +33,10 @@ pub enum RoomRedactionEvent {
     Redacted(RedactedRoomRedactionEvent),
 }
 
+impl JsonCastable<SyncRoomRedactionEvent> for RoomRedactionEvent {}
+
+impl JsonCastable<JsonObject> for RoomRedactionEvent {}
+
 /// A possibly-redacted redaction event without a `room_id`.
 #[allow(clippy::exhaustive_enums)]
 #[derive(Clone, Debug)]
@@ -43,9 +48,11 @@ pub enum SyncRoomRedactionEvent {
     Redacted(RedactedSyncRoomRedactionEvent),
 }
 
+impl JsonCastable<JsonObject> for SyncRoomRedactionEvent {}
+
 /// Redaction event.
 #[derive(Clone, Debug)]
-#[allow(clippy::exhaustive_structs)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct OriginalRoomRedactionEvent {
     /// Data specific to the event type.
     pub content: RoomRedactionEventContent,
@@ -87,9 +94,17 @@ impl From<OriginalRoomRedactionEvent> for OriginalSyncRoomRedactionEvent {
     }
 }
 
+impl JsonCastable<OriginalSyncRoomRedactionEvent> for OriginalRoomRedactionEvent {}
+
+impl JsonCastable<RoomRedactionEvent> for OriginalRoomRedactionEvent {}
+
+impl JsonCastable<SyncRoomRedactionEvent> for OriginalRoomRedactionEvent {}
+
+impl JsonCastable<JsonObject> for OriginalRoomRedactionEvent {}
+
 /// Redacted redaction event.
 #[derive(Clone, Debug, Event)]
-#[allow(clippy::exhaustive_structs)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct RedactedRoomRedactionEvent {
     /// Data specific to the event type.
     pub content: RedactedRoomRedactionEventContent,
@@ -110,9 +125,17 @@ pub struct RedactedRoomRedactionEvent {
     pub unsigned: RedactedUnsigned,
 }
 
+impl JsonCastable<RedactedSyncRoomRedactionEvent> for RedactedRoomRedactionEvent {}
+
+impl JsonCastable<RoomRedactionEvent> for RedactedRoomRedactionEvent {}
+
+impl JsonCastable<SyncRoomRedactionEvent> for RedactedRoomRedactionEvent {}
+
+impl JsonCastable<JsonObject> for RedactedRoomRedactionEvent {}
+
 /// Redaction event without a `room_id`.
 #[derive(Clone, Debug)]
-#[allow(clippy::exhaustive_structs)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct OriginalSyncRoomRedactionEvent {
     /// Data specific to the event type.
     pub content: RoomRedactionEventContent,
@@ -156,9 +179,13 @@ impl OriginalSyncRoomRedactionEvent {
     }
 }
 
+impl JsonCastable<SyncRoomRedactionEvent> for OriginalSyncRoomRedactionEvent {}
+
+impl JsonCastable<JsonObject> for OriginalSyncRoomRedactionEvent {}
+
 /// Redacted redaction event without a `room_id`.
 #[derive(Clone, Debug, Event)]
-#[allow(clippy::exhaustive_structs)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct RedactedSyncRoomRedactionEvent {
     /// Data specific to the event type.
     pub content: RedactedRoomRedactionEventContent,
@@ -176,9 +203,13 @@ pub struct RedactedSyncRoomRedactionEvent {
     pub unsigned: RedactedUnsigned,
 }
 
+impl JsonCastable<SyncRoomRedactionEvent> for RedactedSyncRoomRedactionEvent {}
+
+impl JsonCastable<JsonObject> for RedactedSyncRoomRedactionEvent {}
+
 /// A redaction of an event.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, EventContent)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 #[ruma_event(type = "m.room.redaction", kind = MessageLike, custom_redacted)]
 pub struct RoomRedactionEventContent {
     /// The ID of the event that was redacted.
@@ -214,28 +245,15 @@ impl RoomRedactionEventContent {
 impl RedactContent for RoomRedactionEventContent {
     type Redacted = RedactedRoomRedactionEventContent;
 
-    fn redact(self, version: &RoomVersionId) -> Self::Redacted {
-        let redacts = match version {
-            RoomVersionId::V1
-            | RoomVersionId::V2
-            | RoomVersionId::V3
-            | RoomVersionId::V4
-            | RoomVersionId::V5
-            | RoomVersionId::V6
-            | RoomVersionId::V7
-            | RoomVersionId::V8
-            | RoomVersionId::V9
-            | RoomVersionId::V10 => None,
-            _ => self.redacts,
-        };
-
+    fn redact(self, rules: &RedactionRules) -> Self::Redacted {
+        let redacts = self.redacts.filter(|_| rules.keep_room_redaction_redacts);
         RedactedRoomRedactionEventContent { redacts }
     }
 }
 
 /// A redacted redaction event.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct RedactedRoomRedactionEventContent {
     /// The ID of the event that was redacted.
     ///
@@ -244,19 +262,16 @@ pub struct RedactedRoomRedactionEventContent {
     pub redacts: Option<OwnedEventId>,
 }
 
-impl EventContent for RedactedRoomRedactionEventContent {
-    type EventType = MessageLikeEventType;
+impl StaticEventContent for RedactedRoomRedactionEventContent {
+    const TYPE: &'static str = RoomRedactionEventContent::TYPE;
+    type IsPrefix = <RoomRedactionEventContent as StaticEventContent>::IsPrefix;
+}
 
-    fn event_type(&self) -> Self::EventType {
+impl RedactedMessageLikeEventContent for RedactedRoomRedactionEventContent {
+    fn event_type(&self) -> MessageLikeEventType {
         MessageLikeEventType::RoomRedaction
     }
 }
-
-impl StaticEventContent for RedactedRoomRedactionEventContent {
-    const TYPE: &'static str = "m.room.redaction";
-}
-
-impl RedactedMessageLikeEventContent for RedactedRoomRedactionEventContent {}
 
 impl RoomRedactionEvent {
     /// Returns the `type` of this event.
@@ -299,15 +314,15 @@ impl RoomRedactionEvent {
         }
     }
 
-    /// Returns the ID of the event that this event redacts, according to the given room version.
+    /// Returns the ID of the event that this event redacts, according to the given redaction rules.
     ///
     /// # Panics
     ///
     /// Panics if this is a non-redacted event and both `redacts` field are `None`, which is only
     /// possible if the event was modified after being deserialized.
-    pub fn redacts(&self, room_version: &RoomVersionId) -> Option<&EventId> {
+    pub fn redacts(&self, rules: &RedactionRules) -> Option<&EventId> {
         match self {
-            Self::Original(ev) => Some(ev.redacts(room_version)),
+            Self::Original(ev) => Some(ev.redacts(rules)),
             Self::Redacted(ev) => ev.content.redacts.as_deref(),
         }
     }
@@ -351,15 +366,15 @@ impl SyncRoomRedactionEvent {
         }
     }
 
-    /// Returns the ID of the event that this event redacts, according to the given room version.
+    /// Returns the ID of the event that this event redacts, according to the given redaction rules.
     ///
     /// # Panics
     ///
     /// Panics if this is a non-redacted event and both `redacts` field are `None`, which is only
     /// possible if the event was modified after being deserialized.
-    pub fn redacts(&self, room_version: &RoomVersionId) -> Option<&EventId> {
+    pub fn redacts(&self, rules: &RedactionRules) -> Option<&EventId> {
         match self {
-            Self::Original(ev) => Some(ev.redacts(room_version)),
+            Self::Original(ev) => Some(ev.redacts(rules)),
             Self::Redacted(ev) => ev.content.redacts.as_deref(),
         }
     }
@@ -389,48 +404,47 @@ impl From<RoomRedactionEvent> for SyncRoomRedactionEvent {
 
 impl OriginalRoomRedactionEvent {
     /// Returns the ID of the event that this event redacts, according to the proper `redacts` field
-    /// for the given room version.
+    /// for the given redaction rules.
     ///
-    /// If the `redacts` field is not the proper one for the given room version, this falls back to
-    /// the one that is available.
+    /// If the `redacts` field is not the proper one for the given rules, this falls back to the one
+    /// that is available.
     ///
     /// # Panics
     ///
     /// Panics if both `redacts` field are `None`, which is only possible if the event was modified
     /// after being deserialized.
-    pub fn redacts(&self, room_version: &RoomVersionId) -> &EventId {
-        redacts(room_version, self.redacts.as_deref(), self.content.redacts.as_deref())
+    pub fn redacts(&self, rules: &RedactionRules) -> &EventId {
+        redacts(rules, self.redacts.as_deref(), self.content.redacts.as_deref())
     }
 }
 
 impl OriginalSyncRoomRedactionEvent {
     /// Returns the ID of the event that this event redacts, according to the proper `redacts` field
-    /// for the given room version.
+    /// for the given redaction rules.
     ///
-    /// If the `redacts` field is not the proper one for the given room version, this falls back to
-    /// the one that is available.
+    /// If the `redacts` field is not the proper one for the given rules, this falls back to the one
+    /// that is available.
     ///
     /// # Panics
     ///
     /// Panics if both `redacts` field are `None`, which is only possible if the event was modified
     /// after being deserialized.
-    pub fn redacts(&self, room_version: &RoomVersionId) -> &EventId {
-        redacts(room_version, self.redacts.as_deref(), self.content.redacts.as_deref())
+    pub fn redacts(&self, rules: &RedactionRules) -> &EventId {
+        redacts(rules, self.redacts.as_deref(), self.content.redacts.as_deref())
     }
 }
 
-#[cfg(feature = "canonical-json")]
 impl RedactionEvent for OriginalRoomRedactionEvent {}
-#[cfg(feature = "canonical-json")]
+
 impl RedactionEvent for OriginalSyncRoomRedactionEvent {}
-#[cfg(feature = "canonical-json")]
+
 impl RedactionEvent for RoomRedactionEvent {}
-#[cfg(feature = "canonical-json")]
+
 impl RedactionEvent for SyncRoomRedactionEvent {}
 
 /// Extra information about a redaction that is not incorporated into the event's hash.
 #[derive(Clone, Debug, Deserialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct RoomRedactionUnsigned {
     /// The time in milliseconds that has elapsed since the event was sent.
     ///
@@ -445,7 +459,7 @@ pub struct RoomRedactionUnsigned {
 
     /// [Bundled aggregations] of related child events.
     ///
-    /// [Bundled aggregations]: https://spec.matrix.org/latest/client-server-api/#aggregations-of-child-events
+    /// [Bundled aggregations]: https://spec.matrix.org/v1.18/client-server-api/#aggregations-of-child-events
     #[serde(rename = "m.relations", default)]
     pub relations: BundledMessageLikeRelations<OriginalSyncRoomRedactionEvent>,
 }
@@ -474,40 +488,35 @@ impl CanBeEmpty for RoomRedactionUnsigned {
     }
 }
 
-/// Returns the value of the proper `redacts` field for the given room version.
+/// Returns the value of the proper `redacts` field for the given redaction rules.
 ///
-/// If the `redacts` field is not the proper one for the given room version, this falls back to
-/// the one that is available.
+/// If the `redacts` field is not the proper one for the given rules, this falls back to the one
+/// that is available.
 ///
 /// # Panics
 ///
 /// Panics if both `redacts` and `content_redacts` are `None`.
 fn redacts<'a>(
-    room_version: &'_ RoomVersionId,
+    rules: &'_ RedactionRules,
     redacts: Option<&'a EventId>,
     content_redacts: Option<&'a EventId>,
 ) -> &'a EventId {
-    match room_version {
-            RoomVersionId::V1
-            | RoomVersionId::V2
-            | RoomVersionId::V3
-            | RoomVersionId::V4
-            | RoomVersionId::V5
-            | RoomVersionId::V6
-            | RoomVersionId::V7
-            | RoomVersionId::V8
-            | RoomVersionId::V9
-            | RoomVersionId::V10 => redacts
-                .or_else(|| {
-                    error!("Redacts field at event level not available, falling back to the one inside content");
-                    content_redacts
+    if rules.content_field_redacts {
+        content_redacts.or_else(|| {
+            error!(
+                "Redacts field inside content not available, \
+                 falling back to the one at the event level"
+            );
+            redacts
         })
-                .expect("At least one redacts field is set"),
-            _ => content_redacts
-                .or_else(|| {
-                    error!("Redacts field inside content not available, falling back to the one at the event level");
-                    redacts
+    } else {
+        redacts.or_else(|| {
+            error!(
+                "Redacts field at event level not available, \
+                 falling back to the one inside content"
+            );
+            content_redacts
         })
-                .expect("At least one redacts field is set"),
-        }
+    }
+    .expect("At least one redacts field is set")
 }

@@ -1,9 +1,10 @@
-use ruma_macros::IdZst;
+use ruma_macros::IdDst;
 
 #[cfg(feature = "rand")]
 use super::generate_localpart;
+use super::{IdParseError, KeyName};
 
-/// A Matrix key ID.
+/// A Matrix device ID.
 ///
 /// Device identifiers in Matrix are completely opaque character sequences. This type is provided
 /// simply for its semantic value.
@@ -11,11 +12,11 @@ use super::generate_localpart;
 /// # Example
 ///
 /// ```
-/// use ruma_common::{device_id, DeviceId, OwnedDeviceId};
+/// use ruma_common::{DeviceId, OwnedDeviceId, device_id};
 ///
 /// # #[cfg(feature = "rand")] {
 /// let random_id = DeviceId::new();
-/// assert_eq!(random_id.as_str().len(), 8);
+/// assert_eq!(random_id.as_str().len(), 10);
 /// # }
 ///
 /// let static_id = device_id!("01234567");
@@ -28,7 +29,7 @@ use super::generate_localpart;
 /// assert_eq!(owned_id.as_str(), "ijklmnop");
 /// ```
 #[repr(transparent)]
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, IdZst)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, IdDst)]
 pub struct DeviceId(str);
 
 impl DeviceId {
@@ -36,7 +37,19 @@ impl DeviceId {
     #[cfg(feature = "rand")]
     #[allow(clippy::new_ret_no_self)]
     pub fn new() -> OwnedDeviceId {
-        Self::from_borrowed(&generate_localpart(8)).to_owned()
+        OwnedDeviceId::from_box_str_unchecked(generate_localpart(10))
+    }
+}
+
+impl KeyName for DeviceId {
+    fn validate(_s: &str) -> Result<(), IdParseError> {
+        Ok(())
+    }
+}
+
+impl KeyName for OwnedDeviceId {
+    fn validate(_s: &str) -> Result<(), IdParseError> {
+        Ok(())
     }
 }
 
@@ -47,7 +60,7 @@ mod tests {
     #[cfg(feature = "rand")]
     #[test]
     fn generate_device_id() {
-        assert_eq!(DeviceId::new().as_str().len(), 8);
+        assert_eq!(DeviceId::new().as_str().len(), 10);
     }
 
     #[test]

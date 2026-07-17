@@ -5,24 +5,24 @@
 pub mod v2 {
     //! `/v2/` ([spec])
     //!
-    //! [spec]: https://spec.matrix.org/latest/identity-service-api/#get_matrixidentityv2terms
+    //! [spec]: https://spec.matrix.org/v1.18/identity-service-api/#get_matrixidentityv2terms
 
     use std::collections::BTreeMap;
 
     use ruma_common::{
-        api::{request, response, Metadata},
+        api::{auth_scheme::NoAccessToken, request, response},
         metadata,
     };
     use serde::{Deserialize, Serialize};
 
-    const METADATA: Metadata = metadata! {
+    metadata! {
         method: GET,
         rate_limited: false,
-        authentication: None,
+        authentication: NoAccessToken,
         history: {
             1.0 => "/_matrix/identity/v2/terms",
         }
-    };
+    }
 
     /// Request type for the `get_terms_of_service` endpoint.
     #[request]
@@ -55,7 +55,7 @@ pub mod v2 {
 
     /// Collection of localized policies.
     #[derive(Clone, Debug, Serialize, Deserialize)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
     pub struct Policies {
         /// The version for the policy.
         ///
@@ -80,7 +80,7 @@ pub mod v2 {
 
     /// A localized policy offered by a server.
     #[derive(Clone, Debug, Serialize, Deserialize)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
     pub struct LocalizedPolicy {
         /// The localized name of the policy.
         ///

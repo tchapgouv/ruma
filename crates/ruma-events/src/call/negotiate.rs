@@ -1,6 +1,6 @@
 //! Types for the [`m.call.negotiate`] event.
 //!
-//! [`m.call.negotiate`]: https://spec.matrix.org/latest/client-server-api/#mcallnegotiate
+//! [`m.call.negotiate`]: https://spec.matrix.org/v1.18/client-server-api/#mcallnegotiate
 
 use std::collections::BTreeMap;
 
@@ -19,7 +19,7 @@ use super::{SessionDescription, StreamMetadata};
 /// First an event must be sent with an `offer` session description, which is replied to with an
 /// event with an `answer` session description.
 #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 #[ruma_event(type = "m.call.negotiate", kind = MessageLike)]
 pub struct CallNegotiateEventContent {
     /// The ID of the call this event relates to.

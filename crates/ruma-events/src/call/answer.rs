@@ -1,6 +1,6 @@
 //! Types for the [`m.call.answer`] event.
 //!
-//! [`m.call.answer`]: https://spec.matrix.org/latest/client-server-api/#mcallanswer
+//! [`m.call.answer`]: https://spec.matrix.org/v1.18/client-server-api/#mcallanswer
 
 use std::collections::BTreeMap;
 
@@ -16,7 +16,7 @@ use super::{SessionDescription, StreamMetadata};
 ///
 /// This event is sent by the callee when they wish to answer the call.
 #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 #[ruma_event(type = "m.call.answer", kind = MessageLike)]
 pub struct CallAnswerEventContent {
     /// The VoIP session description object.

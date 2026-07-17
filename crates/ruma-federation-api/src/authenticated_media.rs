@@ -11,13 +11,15 @@ pub mod get_content_thumbnail;
 /// The `multipart/mixed` mime "essence".
 const MULTIPART_MIXED: &str = "multipart/mixed";
 /// The maximum number of headers to parse in a body part.
+#[cfg(feature = "client")]
 const MAX_HEADERS_COUNT: usize = 32;
 /// The length of the generated boundary.
+#[cfg(feature = "server")]
 const GENERATED_BOUNDARY_LENGTH: usize = 30;
 
 /// The metadata of a file from the content repository.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct ContentMetadata {}
 
 impl ContentMetadata {
@@ -29,7 +31,7 @@ impl ContentMetadata {
 
 /// A file from the content repository or the location where it can be found.
 #[derive(Debug, Clone)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub enum FileOrLocation {
     /// The content of the file.
     File(Content),
@@ -40,7 +42,7 @@ pub enum FileOrLocation {
 
 /// The content of a file from the content repository.
 #[derive(Debug, Clone)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct Content {
     /// The content of the file as bytes.
     pub file: Vec<u8>,
@@ -78,10 +80,10 @@ fn try_into_multipart_mixed_response<T: Default + bytes::BufMut>(
 ) -> Result<http::Response<T>, ruma_common::api::error::IntoHttpError> {
     use std::io::Write as _;
 
-    use rand::Rng as _;
+    use rand::RngExt as _;
 
-    let boundary = rand::thread_rng()
-        .sample_iter(&rand::distributions::Alphanumeric)
+    let boundary = rand::rng()
+        .sample_iter(&rand::distr::Alphanumeric)
         .map(char::from)
         .take(GENERATED_BOUNDARY_LENGTH)
         .collect::<String>();
@@ -146,7 +148,7 @@ fn try_from_multipart_mixed_response<T: AsRef<[u8]>>(
     http_response: http::Response<T>,
 ) -> Result<
     (ContentMetadata, FileOrLocation),
-    ruma_common::api::error::FromHttpResponseError<ruma_common::api::error::MatrixError>,
+    ruma_common::api::error::FromHttpResponseError<ruma_common::api::error::Error>,
 > {
     use ruma_common::api::error::{HeaderDeserializationError, MultipartMixedDeserializationError};
 
@@ -301,8 +303,8 @@ mod tests {
     use ruma_common::http_headers::{ContentDisposition, ContentDispositionType};
 
     use super::{
-        try_from_multipart_mixed_response, try_into_multipart_mixed_response, Content,
-        ContentMetadata, FileOrLocation,
+        Content, ContentMetadata, FileOrLocation, try_from_multipart_mixed_response,
+        try_into_multipart_mixed_response,
     };
 
     #[test]
@@ -389,8 +391,7 @@ mod tests {
         try_from_multipart_mixed_response(response).unwrap_err();
 
         // Wrong boundary.
-        let body =
-            "\r\n--abcdef\r\n\r\n{}\r\n--abcdef\r\nContent-Type: text/plain\r\n\r\nsome plain text\r\n--abcdef--";
+        let body = "\r\n--abcdef\r\n\r\n{}\r\n--abcdef\r\nContent-Type: text/plain\r\n\r\nsome plain text\r\n--abcdef--";
         let response = http::Response::builder()
             .header(http::header::CONTENT_TYPE, "multipart/mixed; boundary=012345")
             .body(body)
@@ -409,8 +410,7 @@ mod tests {
         try_from_multipart_mixed_response(response).unwrap_err();
 
         // Missing header and content empty line separator in body part.
-        let body =
-            "\r\n--abcdef\r\n{}\r\n--abcdef\r\nContent-Type: text/plain\r\n\r\nsome plain text\r\n--abcdef--";
+        let body = "\r\n--abcdef\r\n{}\r\n--abcdef\r\nContent-Type: text/plain\r\n\r\nsome plain text\r\n--abcdef--";
         let response = http::Response::builder()
             .header(http::header::CONTENT_TYPE, "multipart/mixed; boundary=abcdef")
             .body(body)
@@ -419,8 +419,7 @@ mod tests {
         try_from_multipart_mixed_response(response).unwrap_err();
 
         // Control character in header.
-        let body =
-            "\r\n--abcdef\r\n\r\n{}\r\n--abcdef\r\nContent-Type: text/plain\r\nContent-Disposition: inline; filename=\"my\nfile\"\r\nsome plain text\r\n--abcdef--";
+        let body = "\r\n--abcdef\r\n\r\n{}\r\n--abcdef\r\nContent-Type: text/plain\r\nContent-Disposition: inline; filename=\"my\nfile\"\r\nsome plain text\r\n--abcdef--";
         let response = http::Response::builder()
             .header(http::header::CONTENT_TYPE, "multipart/mixed; boundary=abcdef")
             .body(body)
@@ -441,8 +440,7 @@ mod tests {
     #[test]
     fn multipart_mixed_deserialize_valid() {
         // Simple.
-        let body =
-            "\r\n--abcdef\r\ncontent-type: application/json\r\n\r\n{}\r\n--abcdef\r\ncontent-type: text/plain\r\n\r\nsome plain text\r\n--abcdef--";
+        let body = "\r\n--abcdef\r\ncontent-type: application/json\r\n\r\n{}\r\n--abcdef\r\ncontent-type: text/plain\r\n\r\nsome plain text\r\n--abcdef--";
         let response = http::Response::builder()
             .header(http::header::CONTENT_TYPE, "multipart/mixed; boundary=abcdef")
             .body(body)
@@ -456,8 +454,7 @@ mod tests {
         assert_eq!(file_content.content_disposition, None);
 
         // Case-insensitive headers.
-        let body =
-            "\r\n--abcdef\r\nCONTENT-type: application/json\r\n\r\n{}\r\n--abcdef\r\nCONTENT-TYPE: text/plain\r\ncoNtenT-disPosItioN: attachment; filename=my_file.txt\r\n\r\nsome plain text\r\n--abcdef--";
+        let body = "\r\n--abcdef\r\nCONTENT-type: application/json\r\n\r\n{}\r\n--abcdef\r\nCONTENT-TYPE: text/plain\r\ncoNtenT-disPosItioN: attachment; filename=my_file.txt\r\n\r\nsome plain text\r\n--abcdef--";
         let response = http::Response::builder()
             .header(http::header::CONTENT_TYPE, "multipart/mixed; boundary=abcdef")
             .body(body)
@@ -473,8 +470,7 @@ mod tests {
         assert_eq!(content_disposition.filename.unwrap(), "my_file.txt");
 
         // Extra whitespace.
-        let body =
-            "   \r\n--abcdef\r\ncontent-type:   application/json   \r\n\r\n {} \r\n--abcdef\r\ncontent-type: text/plain  \r\n\r\nsome plain text\r\n--abcdef--  ";
+        let body = "   \r\n--abcdef\r\ncontent-type:   application/json   \r\n\r\n {} \r\n--abcdef\r\ncontent-type: text/plain  \r\n\r\nsome plain text\r\n--abcdef--  ";
         let response = http::Response::builder()
             .header(http::header::CONTENT_TYPE, "multipart/mixed; boundary=abcdef")
             .body(body)
@@ -488,8 +484,7 @@ mod tests {
         assert_eq!(file_content.content_disposition, None);
 
         // Missing CR except in boundaries.
-        let body =
-            "\r\n--abcdef\ncontent-type: application/json\n\n{}\r\n--abcdef\ncontent-type: text/plain  \n\nsome plain text\r\n--abcdef--";
+        let body = "\r\n--abcdef\ncontent-type: application/json\n\n{}\r\n--abcdef\ncontent-type: text/plain  \n\nsome plain text\r\n--abcdef--";
         let response = http::Response::builder()
             .header(http::header::CONTENT_TYPE, "multipart/mixed; boundary=abcdef")
             .body(body)
@@ -547,8 +542,7 @@ mod tests {
         assert_eq!(file_content.content_disposition, None);
 
         // Raw UTF-8 filename (some kind of compatibility with multipart/form-data).
-        let body =
-            "\r\n--abcdef\r\ncontent-type: application/json\r\n\r\n{}\r\n--abcdef\r\ncontent-type: text/plain\r\ncontent-disposition: inline; filename=\"ȵ⌾Ⱦԩ💈Ňɠ\"\r\n\r\nsome plain text\r\n--abcdef--";
+        let body = "\r\n--abcdef\r\ncontent-type: application/json\r\n\r\n{}\r\n--abcdef\r\ncontent-type: text/plain\r\ncontent-disposition: inline; filename=\"ȵ⌾Ⱦԩ💈Ňɠ\"\r\n\r\nsome plain text\r\n--abcdef--";
         let response = http::Response::builder()
             .header(http::header::CONTENT_TYPE, "multipart/mixed; boundary=abcdef")
             .body(body)

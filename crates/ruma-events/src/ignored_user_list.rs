@@ -1,6 +1,6 @@
 //! Types for the [`m.ignored_user_list`] event.
 //!
-//! [`m.ignored_user_list`]: https://spec.matrix.org/latest/client-server-api/#mignored_user_list
+//! [`m.ignored_user_list`]: https://spec.matrix.org/v1.18/client-server-api/#mignored_user_list
 
 use std::collections::BTreeMap;
 
@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// A list of users to ignore.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, EventContent)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 #[ruma_event(type = "m.ignored_user_list", kind = GlobalAccountData)]
 pub struct IgnoredUserListEventContent {
     /// A map of users to ignore.
@@ -38,7 +38,7 @@ impl IgnoredUserListEventContent {
 ///
 /// This is currently empty.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct IgnoredUser {}
 
 impl IgnoredUser {
@@ -51,8 +51,8 @@ impl IgnoredUser {
 #[cfg(test)]
 mod tests {
     use assert_matches2::assert_matches;
-    use ruma_common::{owned_user_id, user_id};
-    use serde_json::{from_value as from_json_value, json, to_value as to_json_value};
+    use ruma_common::{canonical_json::assert_to_canonical_json_eq, owned_user_id, user_id};
+    use serde_json::{from_value as from_json_value, json};
 
     use super::IgnoredUserListEventContent;
     use crate::AnyGlobalAccountDataEvent;
@@ -62,13 +62,14 @@ mod tests {
         let ignored_user_list =
             IgnoredUserListEventContent::users(vec![owned_user_id!("@carl:example.com")]);
 
-        let json = json!({
-            "ignored_users": {
-                "@carl:example.com": {}
-            },
-        });
-
-        assert_eq!(to_json_value(ignored_user_list).unwrap(), json);
+        assert_to_canonical_json_eq!(
+            ignored_user_list,
+            json!({
+                "ignored_users": {
+                    "@carl:example.com": {}
+                },
+            }),
+        );
     }
 
     #[test]

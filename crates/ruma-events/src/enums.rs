@@ -1,22 +1,77 @@
 use ruma_common::{
-    serde::from_raw_json_value, EventId, MilliSecondsSinceUnixEpoch, OwnedRoomId, RoomId,
-    TransactionId, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedRoomId, RoomId, TransactionId, UserId,
+    serde::from_raw_json_value,
 };
-use ruma_macros::{event_enum, EventEnumFromEvent};
-use serde::{de, Deserialize};
+#[cfg(feature = "unstable-msc3381")]
+use ruma_events::{
+    poll::{start::PollStartEventContent, unstable_start::UnstablePollStartEventContent},
+    room::encrypted::Replacement,
+};
+use ruma_macros::{EventEnumFromEvent, event_enum};
+use serde::{Deserialize, de};
 use serde_json::value::RawValue as RawJsonValue;
 
 use super::room::encrypted;
+
+/// Event types that servers should send as [stripped state] to help clients identify a room when
+/// they can't access the full room state.
+///
+/// [stripped state]: https://spec.matrix.org/v1.18/client-server-api/#stripped-state
+pub const RECOMMENDED_STRIPPED_STATE_EVENT_TYPES: &[StateEventType] = &[
+    StateEventType::RoomCreate,
+    StateEventType::RoomName,
+    StateEventType::RoomAvatar,
+    StateEventType::RoomTopic,
+    StateEventType::RoomJoinRules,
+    StateEventType::RoomCanonicalAlias,
+    StateEventType::RoomEncryption,
+];
+
+/// Event types that servers should transfer upon [room upgrade]. The exact details for what is
+/// transferred is left as an implementation detail.
+///
+/// [room upgrade]: https://spec.matrix.org/v1.18/client-server-api/#server-behaviour-21
+pub const RECOMMENDED_TRANSFERABLE_STATE_EVENT_TYPES: &[StateEventType] = &[
+    StateEventType::RoomServerAcl,
+    StateEventType::RoomEncryption,
+    StateEventType::RoomName,
+    StateEventType::RoomAvatar,
+    StateEventType::RoomTopic,
+    StateEventType::RoomGuestAccess,
+    StateEventType::RoomHistoryVisibility,
+    StateEventType::RoomJoinRules,
+    StateEventType::RoomPowerLevels,
+];
 
 event_enum! {
     /// Any global account data event.
     enum GlobalAccountData {
         "m.direct" => super::direct,
+        #[cfg(feature = "unstable-msc4359")]
+        #[ruma_enum(ident = DoNotDisturb, alias = "m.do_not_disturb")]
+        "dm.filament.do_not_disturb" => super::do_not_disturb,
         "m.identity_server" => super::identity_server,
+        "m.invite_permission_config" => super::invite_permission_config,
+        #[cfg(feature = "unstable-msc4380")]
+        #[ruma_enum(ident = UnstableInvitePermissionConfig)]
+        "org.matrix.msc4380.invite_permission_config" => super::invite_permission_config,
         "m.ignored_user_list" => super::ignored_user_list,
         "m.push_rules" => super::push_rules,
         "m.secret_storage.default_key" => super::secret_storage::default_key,
         "m.secret_storage.key.*" => super::secret_storage::key,
+        #[cfg(feature = "unstable-msc4278")]
+        "m.media_preview_config" => super::media_preview_config,
+        #[cfg(feature = "unstable-msc4278")]
+        #[ruma_enum(ident = UnstableMediaPreviewConfig)]
+        "io.element.msc4278.media_preview_config" => super::media_preview_config,
+        #[cfg(feature = "unstable-msc2545")]
+        #[ruma_enum(ident = AccountImagePack, alias = "m.image_pack")]
+        "im.ponies.user_emotes" => super::image_pack,
+        #[cfg(feature = "unstable-msc2545")]
+        #[ruma_enum(ident = ImagePackRooms, alias = "m.image_pack.rooms")]
+        "im.ponies.emote_rooms" => super::image_pack,
+        "m.recent_emoji" => super::recent_emoji,
+        "m.key_backup" => super::key_backup,
     }
 
     /// Any room account data event.
@@ -27,6 +82,14 @@ event_enum! {
         #[cfg(feature = "unstable-msc2867")]
         #[ruma_enum(ident = UnstableMarkedUnread)]
         "com.famedly.marked_unread" => super::marked_unread,
+        #[cfg(feature = "unstable-msc4278")]
+        "m.media_preview_config" => super::media_preview_config,
+        #[cfg(feature = "unstable-msc4278")]
+        #[ruma_enum(ident = UnstableMediaPreviewConfig)]
+        "io.element.msc4278.media_preview_config" => super::media_preview_config,
+        #[cfg(feature = "unstable-msc3230")]
+        #[ruma_enum(alias = "m.space_order")]
+        "org.matrix.msc3230.space_order" => super::space_order,
     }
 
     /// Any ephemeral room event.
@@ -104,7 +167,14 @@ event_enum! {
         "org.matrix.msc3245.voice.v2" => super::voice,
         #[cfg(feature = "unstable-msc4075")]
         #[ruma_enum(alias = "m.call.notify")]
+        #[allow(deprecated)]
         "org.matrix.msc4075.call.notify" => super::call::notify,
+        #[cfg(feature = "unstable-msc4075")]
+        #[ruma_enum(alias = "m.rtc.notification")]
+        "org.matrix.msc4075.rtc.notification" => super::rtc::notification,
+        #[cfg(feature = "unstable-msc4310")]
+        #[ruma_enum(alias = "m.rtc.decline")]
+        "org.matrix.msc4310.rtc.decline" => super::rtc::decline,
     }
 
     /// Any state event.
@@ -112,17 +182,22 @@ event_enum! {
         "m.policy.rule.room" => super::policy::rule::room,
         "m.policy.rule.server" => super::policy::rule::server,
         "m.policy.rule.user" => super::policy::rule::user,
-        "m.room.aliases" => super::room::aliases,
         "m.room.avatar" => super::room::avatar,
         "m.room.canonical_alias" => super::room::canonical_alias,
         "m.room.create" => super::room::create,
         "m.room.encryption" => super::room::encryption,
+        #[cfg(feature = "unstable-msc4362")]
+        "m.room.encrypted" => super::room::encrypted::unstable_state,
         "m.room.guest_access" => super::room::guest_access,
         "m.room.history_visibility" => super::room::history_visibility,
         "m.room.join_rules" => super::room::join_rules,
+        #[cfg(feature = "unstable-msc4334")]
+        #[ruma_enum(alias = "m.room.language")]
+        "org.matrix.msc4334.room.language" => super::room::language,
         "m.room.member" => super::room::member,
         "m.room.name" => super::room::name,
         "m.room.pinned_events" => super::room::pinned_events,
+        "m.room.policy" => super::room::policy,
         "m.room.power_levels" => super::room::power_levels,
         "m.room.server_acl" => super::room::server_acl,
         "m.room.third_party_invite" => super::room::third_party_invite,
@@ -130,19 +205,29 @@ event_enum! {
         "m.room.topic" => super::room::topic,
         "m.space.child" => super::space::child,
         "m.space.parent" => super::space::parent,
+        #[cfg(feature = "unstable-msc2545")]
+        #[ruma_enum(ident = RoomImagePack, alias = "m.image_pack")]
+        "im.ponies.room_emotes" => super::image_pack,
         #[cfg(feature = "unstable-msc3489")]
         #[ruma_enum(alias = "m.beacon_info")]
         "org.matrix.msc3672.beacon_info" => super::beacon_info,
         #[cfg(feature = "unstable-msc3401")]
         #[ruma_enum(alias = "m.call.member")]
         "org.matrix.msc3401.call.member" => super::call::member,
+        #[cfg(feature = "unstable-msc4171")]
+        #[ruma_enum(alias = "m.member_hints")]
+        "io.element.functional_members" => super::member_hints,
     }
 
     /// Any to-device event.
     enum ToDevice {
         "m.dummy" => super::dummy,
         "m.room_key" => super::room_key,
+        #[cfg(feature = "unstable-msc4268")]
+        #[ruma_enum(alias = "m.room_key_bundle")]
+        "io.element.msc4268.room_key_bundle" => super::room_key_bundle,
         "m.room_key_request" => super::room_key_request,
+        "m.room_key.withheld" => super::room_key::withheld,
         "m.forwarded_room_key" => super::forwarded_room_key,
         "m.key.verification.request" => super::key::verification::request,
         "m.key.verification.ready" => super::key::verification::ready,
@@ -155,6 +240,18 @@ event_enum! {
         "m.room.encrypted" => super::room::encrypted,
         "m.secret.request"=> super::secret::request,
         "m.secret.send" => super::secret::send,
+        #[cfg(feature = "unstable-msc4385")]
+        #[ruma_enum(alias = "m.secret.push")]
+        "io.element.msc4385.secret.push" => super::secret::push,
+        #[cfg(feature = "unstable-msc4471")]
+        #[ruma_enum(alias = "m.stream.subscribe")]
+        "org.matrix.msc4471.stream.subscribe" => super::stream::subscribe,
+        #[cfg(feature = "unstable-msc4471")]
+        #[ruma_enum(alias = "m.stream.cancel")]
+        "org.matrix.msc4471.stream.cancel" => super::stream::cancel,
+        #[cfg(feature = "unstable-msc4471")]
+        #[ruma_enum(alias = "m.stream.update")]
+        "org.matrix.msc4471.stream.update" => super::stream::update,
     }
 }
 
@@ -204,6 +301,9 @@ impl AnyTimelineEvent {
 
         /// Returns this event's `transaction_id` from inside `unsigned`, if there is one.
         pub fn transaction_id(&self) -> Option<&TransactionId>;
+
+        /// Returns whether this event is in its redacted form or not.
+        pub fn is_redacted(&self) -> bool;
     }
 
     /// Returns this event's `type`.
@@ -241,6 +341,9 @@ impl AnySyncTimelineEvent {
 
         /// Returns this event's `transaction_id` from inside `unsigned`, if there is one.
         pub fn transaction_id(&self) -> Option<&TransactionId>;
+
+        /// Returns whether this event is in its redacted form or not.
+        pub fn is_redacted(&self) -> bool;
     }
 
     /// Returns this event's `type`.
@@ -372,9 +475,25 @@ impl AnyMessageLikeEventContent {
                 Some(encrypted::Relation::Reference(relates_to.clone()))
             }
             #[cfg(feature = "unstable-msc3381")]
-            Self::PollStart(_) | Self::UnstablePollStart(_) => None,
+            Self::UnstablePollStart(UnstablePollStartEventContent::New(content)) => {
+                content.relates_to.clone().map(Into::into)
+            }
+            #[cfg(feature = "unstable-msc3381")]
+            Self::UnstablePollStart(UnstablePollStartEventContent::Replacement(content)) => {
+                Some(encrypted::Relation::Replacement(Replacement::new(
+                    content.relates_to.event_id.clone(),
+                )))
+            }
+            #[cfg(feature = "unstable-msc3381")]
+            Self::PollStart(PollStartEventContent { relates_to, .. }) => {
+                relates_to.clone().map(Into::into)
+            }
             #[cfg(feature = "unstable-msc4075")]
             Self::CallNotify(_) => None,
+            #[cfg(feature = "unstable-msc4075")]
+            Self::RtcNotification(ev) => ev.relates_to.clone().map(encrypted::Relation::Reference),
+            #[cfg(feature = "unstable-msc4310")]
+            Self::RtcDecline(ev) => Some(encrypted::Relation::Reference(ev.relates_to.clone())),
             Self::CallSdpStreamMetadataChanged(_)
             | Self::CallNegotiate(_)
             | Self::CallReject(_)

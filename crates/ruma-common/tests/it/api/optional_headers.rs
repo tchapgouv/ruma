@@ -1,22 +1,24 @@
+use std::borrow::Cow;
+
 use assert_matches2::assert_matches;
 use http::header::{CONTENT_DISPOSITION, LOCATION};
 use ruma_common::{
     api::{
-        request, response, IncomingRequest, IncomingResponse, MatrixVersion, Metadata,
-        OutgoingRequest, OutgoingResponse, SendAccessToken,
+        IncomingRequest, IncomingResponse, MatrixVersion, OutgoingRequest, OutgoingResponse,
+        SupportedVersions, auth_scheme::NoAuthentication, request, response,
     },
     http_headers::{ContentDisposition, ContentDispositionType},
     metadata,
 };
 
-const METADATA: Metadata = metadata! {
+metadata! {
     method: GET,
     rate_limited: false,
-    authentication: None,
+    authentication: NoAuthentication,
     history: {
         unstable => "/_matrix/my/endpoint",
     }
-};
+}
 
 /// Request type for the `optional_headers` endpoint.
 #[request]
@@ -39,14 +41,12 @@ pub struct Response {
 #[test]
 fn request_serde_no_header() {
     let req = Request { location: None, content_disposition: None };
+    let supported =
+        SupportedVersions { versions: [MatrixVersion::V1_1].into(), features: Default::default() };
 
     let http_req = req
         .clone()
-        .try_into_http_request::<Vec<u8>>(
-            "https://homeserver.tld",
-            SendAccessToken::None,
-            &[MatrixVersion::V1_1],
-        )
+        .try_into_http_request::<Vec<u8>>("https://homeserver.tld", (), Cow::Owned(supported))
         .unwrap();
     assert_matches!(http_req.headers().get(LOCATION), None);
     assert_matches!(http_req.headers().get(CONTENT_DISPOSITION), None);
@@ -65,14 +65,12 @@ fn request_serde_with_header() {
         location: Some(location.to_owned()),
         content_disposition: Some(content_disposition.clone()),
     };
+    let supported =
+        SupportedVersions { versions: [MatrixVersion::V1_1].into(), features: Default::default() };
 
     let mut http_req = req
         .clone()
-        .try_into_http_request::<Vec<u8>>(
-            "https://homeserver.tld",
-            SendAccessToken::None,
-            &[MatrixVersion::V1_1],
-        )
+        .try_into_http_request::<Vec<u8>>("https://homeserver.tld", (), Cow::Owned(supported))
         .unwrap();
     assert_matches!(http_req.headers().get(LOCATION), Some(_));
     assert_matches!(http_req.headers().get(CONTENT_DISPOSITION), Some(_));

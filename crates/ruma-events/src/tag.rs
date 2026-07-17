@@ -1,6 +1,6 @@
 //! Types for the [`m.tag`] event.
 //!
-//! [`m.tag`]: https://spec.matrix.org/latest/client-server-api/#mtag
+//! [`m.tag`]: https://spec.matrix.org/v1.18/client-server-api/#mtag
 
 use std::{collections::BTreeMap, error::Error, fmt, str::FromStr};
 
@@ -19,7 +19,7 @@ pub type Tags = BTreeMap<TagName, TagInfo>;
 ///
 /// Informs the client of tags on a room.
 #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 #[ruma_event(type = "m.tag", kind = RoomAccountData)]
 pub struct TagEventContent {
     /// A map of tag names to tag info.
@@ -55,11 +55,7 @@ impl FromStr for UserTagName {
     type Err = InvalidUserTagName;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.starts_with("u.") {
-            Ok(Self { name: s.into() })
-        } else {
-            Err(InvalidUserTagName)
-        }
+        if s.starts_with("u.") { Ok(Self { name: s.into() }) } else { Err(InvalidUserTagName) }
     }
 }
 
@@ -79,7 +75,7 @@ impl Error for InvalidUserTagName {}
 
 /// The name of a tag.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub enum TagName {
     /// `m.favourite`: The user's favorite rooms.
     ///
@@ -90,7 +86,7 @@ pub enum TagName {
     LowPriority,
 
     /// `m.server_notice`: Used to identify
-    /// [Server Notice Rooms](https://spec.matrix.org/latest/client-server-api/#server-notices).
+    /// [Server Notice Rooms](https://spec.matrix.org/v1.18/client-server-api/#server-notices).
     ServerNotice,
 
     /// `u.*`: User-defined tag
@@ -171,7 +167,7 @@ impl Serialize for TagName {
 
 /// Information about a tag.
 #[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct TagInfo {
     /// Value to use for lexicographically ordering rooms with this tag.
     ///

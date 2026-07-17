@@ -8,16 +8,18 @@ mod focus;
 mod member_data;
 mod member_state_key;
 
+use std::time::Duration;
+
 pub use focus::*;
 pub use member_data::*;
 pub use member_state_key::*;
-use ruma_common::{MilliSecondsSinceUnixEpoch, OwnedDeviceId};
+use ruma_common::{MilliSecondsSinceUnixEpoch, OwnedDeviceId, room_version_rules::RedactionRules};
 use ruma_macros::{EventContent, StringEnum};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     PossiblyRedactedStateEventContent, PrivOwnedStr, RedactContent, RedactedStateEventContent,
-    StateEventType,
+    StateEventType, StaticEventContent,
 };
 
 /// The member state event for a MatrixRTC session.
@@ -32,7 +34,7 @@ use crate::{
 /// This struct also exposes allows to call the methods from [`CallMemberEventContent`].
 #[derive(Clone, Debug, Serialize, Deserialize, EventContent, PartialEq)]
 #[ruma_event(type = "org.matrix.msc3401.call.member", kind = State, state_key_type = CallMemberStateKey, custom_redacted, custom_possibly_redacted)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 #[serde(untagged)]
 pub enum CallMemberEventContent {
     /// The legacy format for m.call.member events. (An array of memberships. The devices of one
@@ -54,12 +56,23 @@ impl CallMemberEventContent {
     }
 
     /// Creates a new [`CallMemberEventContent`] with [`SessionMembershipData`].
+    ///
+    /// # Arguments
+    /// * `application` - The application that is creating the membership.
+    /// * `device_id` - The device ID of the member.
+    /// * `focus_active` - The active focus state of the member.
+    /// * `foci_preferred` - The preferred focus states of the member.
+    /// * `created_ts` - The timestamp when this state event chain for memberships was created. when
+    ///   updating the event the `created_ts` should be copied from the previous state. Set to
+    ///   `None` if this is the initial join event for the session.
+    /// * `expires` - The time after which the event is considered as expired. Defaults to 4 hours.
     pub fn new(
         application: Application,
         device_id: OwnedDeviceId,
         focus_active: ActiveFocus,
         foci_preferred: Vec<Focus>,
         created_ts: Option<MilliSecondsSinceUnixEpoch>,
+        expires: Option<Duration>,
     ) -> Self {
         Self::SessionContent(SessionMembershipData {
             application,
@@ -67,6 +80,7 @@ impl CallMemberEventContent {
             focus_active,
             foci_preferred,
             created_ts,
+            expires: expires.unwrap_or(Duration::from_secs(14_400)), // Default to 4 hours
         })
     }
 
@@ -84,19 +98,26 @@ impl CallMemberEventContent {
     /// # Arguments
     ///
     /// * `origin_server_ts` - optionally the `origin_server_ts` can be passed as a fallback in the
-    ///   Membership does not contain [`LegacyMembershipData::created_ts`]. (`origin_server_ts` will
-    ///   be ignored if [`LegacyMembershipData::created_ts`] is `Some`)
+    ///   Membership does not contain [`MembershipData::created_ts`]. (`origin_server_ts` will be
+    ///   ignored if [`MembershipData::created_ts`] is `Some`)
     pub fn active_memberships(
         &self,
         origin_server_ts: Option<MilliSecondsSinceUnixEpoch>,
     ) -> Vec<MembershipData<'_>> {
         match self {
-            CallMemberEventContent::LegacyContent(content) => {
-                content.active_memberships(origin_server_ts)
-            }
+            CallMemberEventContent::LegacyContent(content) => content
+                .memberships
+                .iter()
+                .map(MembershipData::Legacy)
+                .filter(|m| !m.is_expired(origin_server_ts))
+                .collect(),
             CallMemberEventContent::SessionContent(content) => {
-                [content].map(MembershipData::Session).to_vec()
+                vec![MembershipData::Session(content)]
+                    .into_iter()
+                    .filter(|m| !m.is_expired(origin_server_ts))
+                    .collect()
             }
+
             CallMemberEventContent::Empty(_) => Vec::new(),
         }
     }
@@ -115,7 +136,7 @@ impl CallMemberEventContent {
         }
     }
 
-    /// Set the `created_ts` of each [`MembershipData::Legacy`] in this event.
+    /// Set the `created_ts` in this event.
     ///
     /// Each call member event contains the `origin_server_ts` and `content.create_ts`.
     /// `content.create_ts` is undefined for the initial event of a session (because the
@@ -140,10 +161,10 @@ impl CallMemberEventContent {
 
 /// This describes the CallMember event if the user is not part of the current session.
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct EmptyMembershipData {
     /// An empty call member state event can optionally contain a leave reason.
-    /// If it is `None` the user has left the call ordinarily. (Intentional hangup)  
+    /// If it is `None` the user has left the call ordinarily. (Intentional hangup)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub leave_reason: Option<LeaveReason>,
 }
@@ -152,12 +173,12 @@ pub struct EmptyMembershipData {
 /// [`CallMemberEventContent::Empty`].
 ///
 /// It is used when the user disconnected and a Future ([MSC4140](https://github.com/matrix-org/matrix-spec-proposals/pull/4140))
-/// was used to update the membership after the client was not reachable anymore.  
-#[derive(Clone, PartialEq, StringEnum)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
-#[ruma_enum(rename_all = "m.snake_case")]
+/// was used to update the membership after the client was not reachable anymore.
+#[derive(Clone, StringEnum)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
+#[ruma_enum(rename_all(prefix = "m.", rule = "snake_case"))]
 pub enum LeaveReason {
-    /// The user left the call by losing network connection or closing  
+    /// The user left the call by losing network connection or closing
     /// the client before it was able to send the leave event.
     LostConnection,
     #[doc(hidden)]
@@ -167,7 +188,7 @@ pub enum LeaveReason {
 impl RedactContent for CallMemberEventContent {
     type Redacted = RedactedCallMemberEventContent;
 
-    fn redact(self, _version: &ruma_common::RoomVersionId) -> Self::Redacted {
+    fn redact(self, _rules: &RedactionRules) -> Self::Redacted {
         RedactedCallMemberEventContent {}
     }
 }
@@ -180,6 +201,10 @@ pub type PossiblyRedactedCallMemberEventContent = CallMemberEventContent;
 
 impl PossiblyRedactedStateEventContent for PossiblyRedactedCallMemberEventContent {
     type StateKey = CallMemberStateKey;
+
+    fn event_type(&self) -> StateEventType {
+        StateEventType::CallMember
+    }
 }
 
 /// The Redacted version of [`CallMemberEventContent`].
@@ -187,20 +212,28 @@ impl PossiblyRedactedStateEventContent for PossiblyRedactedCallMemberEventConten
 #[allow(clippy::exhaustive_structs)]
 pub struct RedactedCallMemberEventContent {}
 
-impl ruma_events::content::EventContent for RedactedCallMemberEventContent {
-    type EventType = StateEventType;
-    fn event_type(&self) -> Self::EventType {
+impl RedactedStateEventContent for RedactedCallMemberEventContent {
+    type StateKey = CallMemberStateKey;
+
+    fn event_type(&self) -> StateEventType {
         StateEventType::CallMember
     }
 }
 
-impl RedactedStateEventContent for RedactedCallMemberEventContent {
-    type StateKey = CallMemberStateKey;
+impl StaticEventContent for RedactedCallMemberEventContent {
+    const TYPE: &'static str = CallMemberEventContent::TYPE;
+    type IsPrefix = <CallMemberEventContent as StaticEventContent>::IsPrefix;
+}
+
+impl From<RedactedCallMemberEventContent> for PossiblyRedactedCallMemberEventContent {
+    fn from(_value: RedactedCallMemberEventContent) -> Self {
+        Self::new_empty(None)
+    }
 }
 
 /// Legacy content with an array of memberships. See also: [`CallMemberEventContent`]
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct LegacyMembershipContent {
     /// A list of all the memberships that user currently has in this room.
     ///
@@ -215,48 +248,36 @@ pub struct LegacyMembershipContent {
     memberships: Vec<LegacyMembershipData>,
 }
 
-impl LegacyMembershipContent {
-    fn active_memberships(
-        &self,
-        origin_server_ts: Option<MilliSecondsSinceUnixEpoch>,
-    ) -> Vec<MembershipData<'_>> {
-        self.memberships
-            .iter()
-            .filter(|m| !m.is_expired(origin_server_ts))
-            .map(MembershipData::Legacy)
-            .collect()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
 
     use assert_matches2::assert_matches;
     use ruma_common::{
-        device_id, owned_device_id, user_id, MilliSecondsSinceUnixEpoch as TS, OwnedEventId,
-        OwnedRoomId, OwnedUserId,
+        MilliSecondsSinceUnixEpoch as TS, OwnedEventId, OwnedRoomId, OwnedUserId, device_id,
+        owned_device_id, user_id,
     };
-    use serde_json::{from_value as from_json_value, json, Value as JsonValue};
+    use serde_json::{Value as JsonValue, from_value as from_json_value, json};
 
     use super::{
+        CallMemberEventContent,
         focus::{ActiveFocus, ActiveLivekitFocus, Focus, LivekitFocus},
         member_data::{
             Application, CallApplicationContent, CallScope, LegacyMembershipData, MembershipData,
         },
-        CallMemberEventContent,
     };
     use crate::{
-        call::member::{EmptyMembershipData, FocusSelection, SessionMembershipData},
         AnyStateEvent, StateEvent,
+        call::member::{EmptyMembershipData, FocusSelection, SessionMembershipData},
+        rtc::notification::CallIntent,
     };
 
     fn create_call_member_legacy_event_content() -> CallMemberEventContent {
         CallMemberEventContent::new_legacy(vec![LegacyMembershipData {
-            application: Application::Call(CallApplicationContent {
-                call_id: "123456".to_owned(),
-                scope: CallScope::Room,
-            }),
+            application: Application::Call(CallApplicationContent::new(
+                "123456".to_owned(),
+                CallScope::Room,
+            )),
             device_id: owned_device_id!("ABCDE"),
             expires: Duration::from_secs(3600),
             foci_active: vec![Focus::Livekit(LivekitFocus {
@@ -270,10 +291,7 @@ mod tests {
 
     fn create_call_member_event_content() -> CallMemberEventContent {
         CallMemberEventContent::new(
-            Application::Call(CallApplicationContent {
-                call_id: "123456".to_owned(),
-                scope: CallScope::Room,
-            }),
+            Application::Call(CallApplicationContent::new("123456".to_owned(), CallScope::Room)),
             owned_device_id!("ABCDE"),
             ActiveFocus::Livekit(ActiveLivekitFocus {
                 focus_selection: FocusSelection::OldestMembership,
@@ -283,6 +301,7 @@ mod tests {
                 service_url: "https://livekit.com".to_owned(),
             })],
             None,
+            Duration::from_secs(3600).into(), // Default to 1 hour
         )
     }
 
@@ -293,6 +312,7 @@ mod tests {
             "call_id": "123456",
             "scope": "m.room",
             "device_id": "ABCDE",
+            "expires": 3_600_000, // Default to 1 hour
             "foci_preferred": [
                 {
                     "livekit_alias": "1",
@@ -350,10 +370,7 @@ mod tests {
     #[test]
     fn deserialize_call_member_event_content() {
         let call_member_ev = CallMemberEventContent::new(
-            Application::Call(CallApplicationContent {
-                call_id: "123456".to_owned(),
-                scope: CallScope::Room,
-            }),
+            Application::Call(CallApplicationContent::new("123456".to_owned(), CallScope::Room)),
             owned_device_id!("THIS_DEVICE"),
             ActiveFocus::Livekit(ActiveLivekitFocus {
                 focus_selection: FocusSelection::OldestMembership,
@@ -363,12 +380,14 @@ mod tests {
                 service_url: "https://livekit1.com".to_owned(),
             })],
             None,
+            None,
         );
 
         let call_member_ev_json = json!({
             "application": "m.call",
             "call_id": "123456",
             "scope": "m.room",
+            "expires": 14_400_000, // Default to 4 hours
             "device_id": "THIS_DEVICE",
             "focus_active":{
                 "type": "livekit",
@@ -397,13 +416,114 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "unstable-msc4075")]
+    fn deserialize_event_with_call_intent() {
+        let call_member_ev = CallMemberEventContent::new(
+            Application::Call(CallApplicationContent {
+                call_id: "".to_owned(),
+                scope: CallScope::Room,
+                call_intent: Some(CallIntent::Audio),
+            }),
+            owned_device_id!("THIS_DEVICE"),
+            ActiveFocus::Livekit(ActiveLivekitFocus {
+                focus_selection: FocusSelection::OldestMembership,
+            }),
+            vec![Focus::Livekit(LivekitFocus {
+                alias: "room1".to_owned(),
+                service_url: "https://livekit1.com".to_owned(),
+            })],
+            None,
+            None,
+        );
+
+        let json = json!({
+              "application": "m.call",
+              "call_id": "",
+              "scope": "m.room",
+              "m.call.intent": "audio",
+              "device_id": "THIS_DEVICE",
+              "foci_preferred": [
+                {
+                  "type": "livekit",
+                  "livekit_alias": "room1",
+                  "livekit_service_url": "https://livekit1.com"
+                }
+              ],
+              "focus_active": {
+                "type": "livekit",
+                "focus_selection": "oldest_membership"
+              },
+              "expires": 14_400_000
+        });
+
+        let ev_content: CallMemberEventContent = serde_json::from_value(json).unwrap();
+        assert_eq!(
+            serde_json::to_string(&ev_content).unwrap(),
+            serde_json::to_string(&call_member_ev).unwrap()
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "unstable-msc4075")]
+    fn deserialize_application() {
+        let test_cases = vec![
+            (
+                Application::Call(CallApplicationContent {
+                    call_id: "".to_owned(),
+                    scope: CallScope::Room,
+                    call_intent: None,
+                }),
+                json!({
+                  "application": "m.call",
+                  "call_id": "",
+                  "scope": "m.room",
+                }),
+            ),
+            (
+                Application::Call(CallApplicationContent {
+                    call_id: "".to_owned(),
+                    scope: CallScope::Room,
+                    call_intent: Some(CallIntent::Audio),
+                }),
+                json!({
+                  "application": "m.call",
+                  "call_id": "",
+                  "scope": "m.room",
+                  "m.call.intent": "audio"
+                }),
+            ),
+            (
+                Application::Call(CallApplicationContent {
+                    call_id: "xxxx".to_owned(),
+                    scope: CallScope::User,
+                    call_intent: Some(CallIntent::Video),
+                }),
+                json!({
+                  "application": "m.call",
+                  "call_id": "xxxx",
+                  "scope": "m.user",
+                  "m.call.intent": "video"
+                }),
+            ),
+        ];
+
+        for (model, jon) in test_cases {
+            let app: Application = serde_json::from_value(jon).unwrap();
+            assert_eq!(
+                serde_json::to_string(&app).unwrap(),
+                serde_json::to_string(&model).unwrap()
+            );
+        }
+    }
+
+    #[test]
     fn deserialize_legacy_call_member_event_content() {
         let call_member_ev = CallMemberEventContent::new_legacy(vec![
             LegacyMembershipData {
-                application: Application::Call(CallApplicationContent {
-                    call_id: "123456".to_owned(),
-                    scope: CallScope::Room,
-                }),
+                application: Application::Call(CallApplicationContent::new(
+                    "123456".to_owned(),
+                    CallScope::Room,
+                )),
                 device_id: owned_device_id!("THIS_DEVICE"),
                 expires: Duration::from_secs(3600),
                 foci_active: vec![Focus::Livekit(LivekitFocus {
@@ -414,10 +534,10 @@ mod tests {
                 created_ts: None,
             },
             LegacyMembershipData {
-                application: Application::Call(CallApplicationContent {
-                    call_id: "".to_owned(),
-                    scope: CallScope::Room,
-                }),
+                application: Application::Call(CallApplicationContent::new(
+                    "".to_owned(),
+                    CallScope::Room,
+                )),
                 device_id: owned_device_id!("OTHER_DEVICE"),
                 expires: Duration::from_secs(3600),
                 foci_active: vec![Focus::Livekit(LivekitFocus {
@@ -475,6 +595,7 @@ mod tests {
     fn member_event_json(state_key: &str) -> JsonValue {
         json!({
             "content":{
+                "expires": 3_600_000, // Default to 4 hours
                 "application": "m.call",
                 "call_id": "",
                 "scope": "m.room",
@@ -522,10 +643,10 @@ mod tests {
         assert_eq!(member_event.room_id, room_id);
         assert_eq!(member_event.origin_server_ts, TS(js_int::UInt::new(111).unwrap()));
         let membership = SessionMembershipData {
-            application: Application::Call(CallApplicationContent {
-                call_id: "".to_owned(),
-                scope: CallScope::Room,
-            }),
+            application: Application::Call(CallApplicationContent::new(
+                "".to_owned(),
+                CallScope::Room,
+            )),
             device_id: owned_device_id!("THIS_DEVICE"),
             foci_preferred: [Focus::Livekit(LivekitFocus {
                 alias: "room1".to_owned(),
@@ -536,6 +657,7 @@ mod tests {
                 focus_selection: FocusSelection::OldestMembership,
             }),
             created_ts: None,
+            expires: Duration::from_secs(3600),
         };
         assert_eq!(
             member_event.content,
@@ -564,12 +686,12 @@ mod tests {
 
     #[test]
     fn deserialize_member_event_with_scoped_state_key_prefixed() {
-        deserialize_member_event_helper("_@user:example.org_THIS_DEVICE");
+        deserialize_member_event_helper("_@user:example.org_THIS_DEVICE_m.call");
     }
 
     #[test]
     fn deserialize_member_event_with_scoped_state_key_unprefixed() {
-        deserialize_member_event_helper("@user:example.org_THIS_DEVICE");
+        deserialize_member_event_helper("@user:example.org_THIS_DEVICE_m.call");
     }
 
     fn timestamps() -> (TS, TS, TS) {
@@ -599,16 +721,18 @@ mod tests {
             content_legacy.active_memberships(Some(two_hours_ago)),
             (vec![] as Vec<MembershipData<'_>>)
         );
-        // session do never expire
-        let content_session = create_call_member_event_content();
+    }
+
+    #[test]
+    fn session_membership_does_expire() {
+        let content = create_call_member_event_content();
+        let (now, one_second_ago, two_hours_ago) = timestamps();
+
+        assert_eq!(content.active_memberships(Some(now)), content.memberships());
+        assert_eq!(content.active_memberships(Some(one_second_ago)), content.memberships());
         assert_eq!(
-            content_session.active_memberships(Some(one_second_ago)),
-            content_session.memberships()
-        );
-        assert_eq!(content_session.active_memberships(Some(now)), content_session.memberships());
-        assert_eq!(
-            content_session.active_memberships(Some(two_hours_ago)),
-            content_session.memberships()
+            content.active_memberships(Some(two_hours_ago)),
+            (vec![] as Vec<MembershipData<'_>>)
         );
     }
 

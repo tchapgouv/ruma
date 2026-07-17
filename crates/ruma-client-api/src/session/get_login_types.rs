@@ -6,38 +6,38 @@
 pub mod v3 {
     //! `/v3/` ([spec])
     //!
-    //! [spec]: https://spec.matrix.org/latest/client-server-api/#get_matrixclientv3login
+    //! [spec]: https://spec.matrix.org/v1.18/client-server-api/#get_matrixclientv3login
 
     use std::borrow::Cow;
 
     use ruma_common::{
-        api::{request, response, Metadata},
+        OwnedMxcUri,
+        api::{auth_scheme::NoAccessToken, request, response},
         metadata,
         serde::{JsonObject, StringEnum},
-        OwnedMxcUri,
     };
-    use serde::{de::DeserializeOwned, Deserialize, Serialize};
+    use serde::{Deserialize, Serialize, de::DeserializeOwned};
     use serde_json::Value as JsonValue;
 
     use crate::PrivOwnedStr;
 
-    const METADATA: Metadata = metadata! {
+    metadata! {
         method: GET,
         rate_limited: true,
-        authentication: None,
+        authentication: NoAccessToken,
         history: {
             1.0 => "/_matrix/client/r0/login",
             1.1 => "/_matrix/client/v3/login",
         }
-    };
+    }
 
     /// Request type for the `get_login_types` endpoint.
-    #[request(error = crate::Error)]
+    #[request]
     #[derive(Default)]
     pub struct Request {}
 
     /// Response type for the `get_login_types` endpoint.
-    #[response(error = crate::Error)]
+    #[response]
     pub struct Response {
         /// The homeserver's supported login types.
         pub flows: Vec<LoginType>,
@@ -59,7 +59,7 @@ pub mod v3 {
 
     /// An authentication mechanism.
     #[derive(Clone, Debug, Serialize)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
     #[serde(untagged)]
     pub enum LoginType {
         /// A password is supplied to authenticate.
@@ -95,9 +95,10 @@ pub mod v3 {
                 "m.login.token" => Self::Token(from_json_object(data)?),
                 "m.login.sso" => Self::Sso(from_json_object(data)?),
                 "m.login.application_service" => Self::ApplicationService(from_json_object(data)?),
-                _ => {
-                    Self::_Custom(Box::new(CustomLoginType { type_: login_type.to_owned(), data }))
-                }
+                _ => Self::_Custom(Box::new(CustomLoginType {
+                    login_type: login_type.to_owned(),
+                    data,
+                })),
             })
         }
 
@@ -108,7 +109,7 @@ pub mod v3 {
                 Self::Token(_) => "m.login.token",
                 Self::Sso(_) => "m.login.sso",
                 Self::ApplicationService(_) => "m.login.application_service",
-                Self::_Custom(c) => &c.type_,
+                Self::_Custom(c) => &c.login_type,
             }
         }
 
@@ -136,7 +137,7 @@ pub mod v3 {
 
     /// The payload for password login.
     #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
     #[serde(tag = "type", rename = "m.login.password")]
     pub struct PasswordLoginType {}
 
@@ -149,7 +150,7 @@ pub mod v3 {
 
     /// The payload for token-based login.
     #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
     #[serde(tag = "type", rename = "m.login.token")]
     pub struct TokenLoginType {
         /// Whether the homeserver supports the `POST /login/get_token` endpoint.
@@ -166,12 +167,20 @@ pub mod v3 {
 
     /// The payload for SSO login.
     #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
     #[serde(tag = "type", rename = "m.login.sso")]
     pub struct SsoLoginType {
         /// The identity provider choices.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pub identity_providers: Vec<IdentityProvider>,
+
+        /// Whether this flow is preferred over other flows.
+        ///
+        /// If this is `true`, [OAuth 2.0 aware clients] must only offer this flow to the user.
+        ///
+        /// [OAuth 2.0 aware clients]: https://spec.matrix.org/v1.18/client-server-api/#oauth-20-aware-clients
+        #[serde(default, skip_serializing_if = "ruma_common::serde::is_default")]
+        pub oauth_aware_preferred: bool,
     }
 
     impl SsoLoginType {
@@ -182,7 +191,7 @@ pub mod v3 {
     }
 
     /// An SSO login identity provider.
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
     #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct IdentityProvider {
         /// The ID of the provider.
@@ -212,35 +221,30 @@ pub mod v3 {
     ///
     /// [matrix-spec-proposals]: https://github.com/matrix-org/matrix-spec-proposals/blob/v1.1/informal/idp-brands.md
     #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/doc/string_enum.md"))]
-    #[derive(Clone, PartialEq, Eq, StringEnum)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+    #[derive(Clone, StringEnum)]
+    #[ruma_enum(rename_all = "lowercase")]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
     pub enum IdentityProviderBrand {
         /// The [Apple] brand.
         ///
         /// [Apple]: https://developer.apple.com/design/human-interface-guidelines/sign-in-with-apple/overview/buttons/
-        #[ruma_enum(rename = "apple")]
         Apple,
 
         /// The [Facebook](https://developers.facebook.com/docs/facebook-login/web/login-button/) brand.
-        #[ruma_enum(rename = "facebook")]
         Facebook,
 
         /// The [GitHub](https://github.com/logos) brand.
-        #[ruma_enum(rename = "github")]
         GitHub,
 
         /// The [GitLab](https://about.gitlab.com/press/press-kit/) brand.
-        #[ruma_enum(rename = "gitlab")]
         GitLab,
 
         /// The [Google](https://developers.google.com/identity/branding-guidelines) brand.
-        #[ruma_enum(rename = "google")]
         Google,
 
         /// The [Twitter] brand.
         ///
         /// [Twitter]: https://developer.twitter.com/en/docs/authentication/guides/log-in-with-twitter#tab1
-        #[ruma_enum(rename = "twitter")]
         Twitter,
 
         /// A custom brand.
@@ -250,7 +254,7 @@ pub mod v3 {
 
     /// The payload for Application Service login.
     #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
     #[serde(tag = "type", rename = "m.login.application_service")]
     pub struct ApplicationServiceLoginType {}
 
@@ -263,34 +267,31 @@ pub mod v3 {
 
     /// A custom login payload.
     #[doc(hidden)]
-    #[derive(Clone, Debug, Deserialize, Serialize)]
+    #[derive(Clone, Debug, Serialize)]
     #[allow(clippy::exhaustive_structs)]
     pub struct CustomLoginType {
-        /// A custom type
-        ///
-        /// This field is named `type_` instead of `type` because the latter is a reserved
-        /// keyword in Rust.
+        /// The custom type.
         #[serde(rename = "type")]
-        pub type_: String,
+        login_type: String,
 
-        /// Remaining type content
+        /// Remaining content.
         #[serde(flatten)]
-        pub data: JsonObject,
+        data: JsonObject,
     }
 
     mod login_type_serde {
-        use ruma_common::serde::from_raw_json_value;
-        use serde::{de, Deserialize};
+        use ruma_common::serde::{JsonObject, from_raw_json_value};
+        use serde::{Deserialize, de};
         use serde_json::value::RawValue as RawJsonValue;
 
-        use super::LoginType;
+        use super::{CustomLoginType, LoginType};
 
         /// Helper struct to determine the type from a `serde_json::value::RawValue`
         #[derive(Debug, Deserialize)]
         struct LoginTypeDeHelper {
             /// The login type field
             #[serde(rename = "type")]
-            type_: String,
+            login_type: String,
         }
 
         impl<'de> Deserialize<'de> for LoginType {
@@ -299,16 +300,21 @@ pub mod v3 {
                 D: de::Deserializer<'de>,
             {
                 let json = Box::<RawJsonValue>::deserialize(deserializer)?;
-                let LoginTypeDeHelper { type_ } = from_raw_json_value(&json)?;
+                let LoginTypeDeHelper { login_type } = from_raw_json_value(&json)?;
 
-                Ok(match type_.as_ref() {
+                Ok(match login_type.as_ref() {
                     "m.login.password" => Self::Password(from_raw_json_value(&json)?),
                     "m.login.token" => Self::Token(from_raw_json_value(&json)?),
                     "m.login.sso" => Self::Sso(from_raw_json_value(&json)?),
                     "m.login.application_service" => {
                         Self::ApplicationService(from_raw_json_value(&json)?)
                     }
-                    _ => Self::_Custom(from_raw_json_value(&json)?),
+                    _ => {
+                        let mut data = from_raw_json_value::<JsonObject, _>(&json)?;
+                        data.remove("type");
+
+                        Self::_Custom(CustomLoginType { login_type, data }.into())
+                    }
                 })
             }
         }
@@ -316,12 +322,10 @@ pub mod v3 {
 
     #[cfg(test)]
     mod tests {
-        use assert_matches2::assert_matches;
-        use ruma_common::mxc_uri;
+        use assert_matches2::{assert_let, assert_matches};
+        use ruma_common::{canonical_json::assert_to_canonical_json_eq, mxc_uri};
         use serde::{Deserialize, Serialize};
-        use serde_json::{
-            from_value as from_json_value, json, to_value as to_json_value, Value as JsonValue,
-        };
+        use serde_json::{Value as JsonValue, from_value as from_json_value, json};
 
         use super::{
             IdentityProvider, IdentityProviderBrand, LoginType, SsoLoginType, TokenLoginType,
@@ -345,21 +349,24 @@ pub mod v3 {
         }
 
         #[test]
-        fn deserialize_custom_login_type() {
-            let wrapper = from_json_value::<Wrapper>(json!({
+        fn custom_login_type_serialize_roundtrip() {
+            let json = json!({
                 "flows": [
                     {
                         "type": "io.ruma.custom",
                         "color": "green",
                     }
                 ],
-            }))
-            .unwrap();
+            });
+
+            let wrapper = from_json_value::<Wrapper>(json.clone()).unwrap();
             assert_eq!(wrapper.flows.len(), 1);
-            assert_matches!(&wrapper.flows[0], LoginType::_Custom(custom));
-            assert_eq!(custom.type_, "io.ruma.custom");
+            assert_let!(LoginType::_Custom(custom) = &wrapper.flows[0]);
+            assert_eq!(custom.login_type, "io.ruma.custom");
             assert_eq!(custom.data.len(), 1);
             assert_eq!(custom.data.get("color"), Some(&JsonValue::from("green")));
+
+            assert_to_canonical_json_eq!(wrapper, json);
         }
 
         #[test]
@@ -387,7 +394,10 @@ pub mod v3 {
             assert_eq!(wrapper.flows.len(), 1);
             let flow = &wrapper.flows[0];
 
-            assert_matches!(flow, LoginType::Sso(SsoLoginType { identity_providers }));
+            assert_let!(
+                LoginType::Sso(SsoLoginType { identity_providers, oauth_aware_preferred: false }) =
+                    flow
+            );
             assert_eq!(identity_providers.len(), 2);
 
             let provider = &identity_providers[0];
@@ -405,7 +415,7 @@ pub mod v3 {
 
         #[test]
         fn serialize_sso_login_type() {
-            let wrapper = to_json_value(Wrapper {
+            let wrapper = Wrapper {
                 flows: vec![
                     LoginType::Token(TokenLoginType::new()),
                     LoginType::Sso(SsoLoginType {
@@ -415,12 +425,12 @@ pub mod v3 {
                             icon: Some("mxc://localhost/github-icon".into()),
                             brand: Some(IdentityProviderBrand::GitHub),
                         }],
+                        oauth_aware_preferred: false,
                     }),
                 ],
-            })
-            .unwrap();
+            };
 
-            assert_eq!(
+            assert_to_canonical_json_eq!(
                 wrapper,
                 json!({
                     "flows": [

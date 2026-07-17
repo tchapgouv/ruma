@@ -5,28 +5,28 @@
 pub mod v3 {
     //! `/v3/` ([spec])
     //!
-    //! [spec]: https://spec.matrix.org/latest/client-server-api/#get_matrixclientv3useruseridroomsroomidaccount_datatype
+    //! [spec]: https://spec.matrix.org/v1.18/client-server-api/#get_matrixclientv3useruseridroomsroomidaccount_datatype
 
     use ruma_common::{
-        api::{request, response, Metadata},
+        OwnedRoomId, OwnedUserId,
+        api::{auth_scheme::AccessToken, request, response},
         metadata,
         serde::Raw,
-        OwnedRoomId, OwnedUserId,
     };
     use ruma_events::{AnyRoomAccountDataEventContent, RoomAccountDataEventType};
 
-    const METADATA: Metadata = metadata! {
+    metadata! {
         method: GET,
         rate_limited: false,
         authentication: AccessToken,
         history: {
-            1.0 => "/_matrix/client/r0/user/:user_id/rooms/:room_id/account_data/:event_type",
-            1.1 => "/_matrix/client/v3/user/:user_id/rooms/:room_id/account_data/:event_type",
+            1.0 => "/_matrix/client/r0/user/{user_id}/rooms/{room_id}/account_data/{event_type}",
+            1.1 => "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/account_data/{event_type}",
         }
-    };
+    }
 
     /// Request type for the `get_room_account_data` endpoint.
-    #[request(error = crate::Error)]
+    #[request]
     pub struct Request {
         /// User ID of user for whom to retrieve data.
         #[ruma_api(path)]
@@ -42,12 +42,13 @@ pub mod v3 {
     }
 
     /// Response type for the `get_room_account_data` endpoint.
-    #[response(error = crate::Error)]
+    #[response]
     pub struct Response {
         /// Account data content for the given type.
         ///
         /// Since the inner type of the `Raw` does not implement `Deserialize`, you need to use
-        /// [`Raw::deserialize_as`] to deserialize it.
+        /// `.deserialize_as_unchecked::<T>()` or
+        /// `.cast_ref_unchecked::<T>().deserialize_with_type()` to deserialize it.
         #[ruma_api(body)]
         pub account_data: Raw<AnyRoomAccountDataEventContent>,
     }

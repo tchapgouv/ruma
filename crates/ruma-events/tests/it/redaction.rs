@@ -1,22 +1,25 @@
 use assert_matches2::assert_matches;
 use js_int::uint;
-use ruma_common::{owned_event_id, serde::CanBeEmpty, MilliSecondsSinceUnixEpoch, RoomVersionId};
-use ruma_events::{
-    room::redaction::{RoomRedactionEvent, RoomRedactionEventContent},
-    AnyMessageLikeEvent,
+use ruma_common::{
+    MilliSecondsSinceUnixEpoch, canonical_json::assert_to_canonical_json_eq, owned_event_id,
+    room_version_rules::RedactionRules, serde::CanBeEmpty,
 };
-use serde_json::{from_value as from_json_value, json, to_value as to_json_value};
+use ruma_events::{
+    AnyMessageLikeEvent,
+    room::redaction::{RoomRedactionEvent, RoomRedactionEventContent},
+};
+use serde_json::{from_value as from_json_value, json};
 
 #[test]
 fn serialize_redaction_content() {
     let content = RoomRedactionEventContent::new_v1().with_reason("being very unfriendly".into());
 
-    let actual = to_json_value(content).unwrap();
-    let expected = json!({
-        "reason": "being very unfriendly"
-    });
-
-    assert_eq!(actual, expected);
+    assert_to_canonical_json_eq!(
+        content,
+        json!({
+            "reason": "being very unfriendly",
+        }),
+    );
 }
 
 #[test]
@@ -25,13 +28,13 @@ fn serialize_redaction_content_v11() {
     let content = RoomRedactionEventContent::new_v11(redacts.clone())
         .with_reason("being very unfriendly".into());
 
-    let actual = to_json_value(content).unwrap();
-    let expected = json!({
-        "redacts": redacts,
-        "reason": "being very unfriendly"
-    });
-
-    assert_eq!(actual, expected);
+    assert_to_canonical_json_eq!(
+        content,
+        json!({
+            "redacts": redacts,
+            "reason": "being very unfriendly",
+        }),
+    );
 }
 
 #[test]
@@ -54,8 +57,8 @@ fn deserialize_redaction() {
         Ok(AnyMessageLikeEvent::RoomRedaction(RoomRedactionEvent::Original(ev)))
     );
 
-    assert_eq!(ev.redacts(&RoomVersionId::V1), "$nomorev1:example.com");
-    assert_eq!(ev.redacts(&RoomVersionId::V11), "$nomorev11:example.com");
+    assert_eq!(ev.redacts(&RedactionRules::V1), "$nomorev1:example.com");
+    assert_eq!(ev.redacts(&RedactionRules::V11), "$nomorev11:example.com");
 
     assert_eq!(ev.content.redacts.unwrap(), "$nomorev11:example.com");
     assert_eq!(ev.content.reason.as_deref(), Some("being very unfriendly"));

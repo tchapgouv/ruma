@@ -8,9 +8,8 @@ pub fn validate(server_name: &str) -> Result<(), Error> {
     }
 
     let end_of_host = if server_name.starts_with('[') {
-        let end_of_ipv6 = match server_name.find(']') {
-            Some(idx) => idx,
-            None => return Err(Error::InvalidServerName),
+        let Some(end_of_ipv6) = server_name.find(']') else {
+            return Err(Error::InvalidServerName);
         };
 
         if server_name[1..end_of_ipv6].parse::<Ipv6Addr>().is_err() {
@@ -21,6 +20,10 @@ pub fn validate(server_name: &str) -> Result<(), Error> {
     } else {
         #[allow(clippy::unnecessary_lazy_evaluations)]
         let end_of_host = server_name.find(':').unwrap_or_else(|| server_name.len());
+
+        if end_of_host == 0 {
+            return Err(Error::InvalidServerName);
+        }
 
         if server_name[..end_of_host]
             .bytes()
@@ -43,5 +46,21 @@ pub fn validate(server_name: &str) -> Result<(), Error> {
         Err(Error::InvalidServerName)
     } else {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate;
+    use crate::user_id;
+
+    #[test]
+    fn rejects_hostless_server_name_with_port() {
+        assert!(validate(":8448").is_err());
+    }
+
+    #[test]
+    fn rejects_user_id_with_hostless_server_name() {
+        assert!(user_id::validate("@alice::8448").is_err());
     }
 }

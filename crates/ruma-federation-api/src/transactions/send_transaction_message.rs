@@ -5,28 +5,26 @@
 pub mod v1 {
     //! `/v1/` ([spec])
     //!
-    //! [spec]: https://spec.matrix.org/latest/server-server-api/#put_matrixfederationv1sendtxnid
+    //! [spec]: https://spec.matrix.org/v1.18/server-server-api/#put_matrixfederationv1sendtxnid
 
     use std::collections::BTreeMap;
 
     use ruma_common::{
-        api::{request, response, Metadata},
+        MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedServerName, OwnedTransactionId,
+        api::{request, response},
         metadata,
         serde::Raw,
-        MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedServerName, OwnedTransactionId,
     };
     use serde_json::value::RawValue as RawJsonValue;
 
-    use crate::transactions::edu::Edu;
+    use crate::{authentication::ServerSignatures, transactions::edu::Edu};
 
-    const METADATA: Metadata = metadata! {
+    metadata! {
         method: PUT,
         rate_limited: false,
         authentication: ServerSignatures,
-        history: {
-            1.0 => "/_matrix/federation/v1/send/:transaction_id",
-        }
-    };
+        path: "/_matrix/federation/v1/send/{transaction_id}",
+    }
 
     /// Request type for the `send_transaction_message` endpoint.
     #[request]
@@ -46,12 +44,9 @@ pub mod v1 {
         ///
         /// Must not be more than 50 items.
         ///
-        /// With the `unstable-unspecified` feature, sending `pdus` is optional.
-        /// See [matrix-spec#705](https://github.com/matrix-org/matrix-spec/issues/705).
-        #[cfg_attr(
-            feature = "unstable-unspecified",
-            serde(default, skip_serializing_if = "<[_]>::is_empty")
-        )]
+        /// With the `compat-optional-pdus` feature, this field is optional in deserialization,
+        /// defaulting to an empty `Vec`.
+        #[cfg_attr(feature = "compat-optional-txn-pdus", serde(default))]
         pub pdus: Vec<Box<RawJsonValue>>,
 
         /// List of ephemeral messages.

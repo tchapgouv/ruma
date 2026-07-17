@@ -2,18 +2,19 @@ use std::time::Duration;
 
 use js_int::UInt;
 use ruma_common::OwnedMxcUri;
+#[cfg(feature = "unstable-msc2448")]
+use ruma_common::serde::Base64;
 use serde::{Deserialize, Serialize};
 
 use super::FormattedBody;
 use crate::room::{
-    message::media_caption::{caption, formatted_caption},
     EncryptedFile, MediaSource, ThumbnailInfo,
+    message::media_caption::{caption, formatted_caption},
 };
 
 /// The payload for a video message.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
-#[serde(tag = "msgtype", rename = "m.video")]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct VideoMessageEventContent {
     /// A description of the video.
     ///
@@ -69,7 +70,7 @@ impl VideoMessageEventContent {
         Self { info: info.into(), ..self }
     }
 
-    /// Computes the filename of the video as defined by the [spec](https://spec.matrix.org/latest/client-server-api/#media-captions).
+    /// Computes the filename of the video as defined by the [spec](https://spec.matrix.org/v1.18/client-server-api/#media-captions).
     ///
     /// This differs from the `filename` field as this method falls back to the `body` field when
     /// the `filename` field is not set.
@@ -77,7 +78,7 @@ impl VideoMessageEventContent {
         self.filename.as_deref().unwrap_or(&self.body)
     }
 
-    /// Returns the caption of the video as defined by the [spec](https://spec.matrix.org/latest/client-server-api/#media-captions).
+    /// Returns the caption of the video as defined by the [spec](https://spec.matrix.org/v1.18/client-server-api/#media-captions).
     ///
     /// In short, this is the `body` field if the `filename` field exists and has a different value,
     /// otherwise the media file does not have a caption.
@@ -85,7 +86,7 @@ impl VideoMessageEventContent {
         caption(&self.body, self.filename.as_deref())
     }
 
-    /// Returns the formatted caption of the video as defined by the [spec](https://spec.matrix.org/latest/client-server-api/#media-captions).
+    /// Returns the formatted caption of the video as defined by the [spec](https://spec.matrix.org/v1.18/client-server-api/#media-captions).
     ///
     /// This is the same as `caption`, but returns the formatted body instead of the plain body.
     pub fn formatted_caption(&self) -> Option<&FormattedBody> {
@@ -95,7 +96,7 @@ impl VideoMessageEventContent {
 
 /// Metadata about a video.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct VideoInfo {
     /// The duration of the video in milliseconds.
     #[serde(
@@ -140,6 +141,14 @@ pub struct VideoInfo {
     #[cfg(feature = "unstable-msc2448")]
     #[serde(rename = "xyz.amorgan.blurhash", skip_serializing_if = "Option::is_none")]
     pub blurhash: Option<String>,
+
+    /// The [ThumbHash](https://evanw.github.io/thumbhash/) for this video.
+    ///
+    /// This uses the unstable prefix in
+    /// [MSC2448](https://github.com/matrix-org/matrix-spec-proposals/pull/2448).
+    #[cfg(feature = "unstable-msc2448")]
+    #[serde(rename = "xyz.amorgan.thumbhash", skip_serializing_if = "Option::is_none")]
+    pub thumbhash: Option<Base64>,
 }
 
 impl VideoInfo {

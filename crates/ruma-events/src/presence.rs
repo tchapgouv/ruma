@@ -3,15 +3,13 @@
 //! The only content valid for this event is `PresenceEventContent`.
 
 use js_int::UInt;
-use ruma_common::{presence::PresenceState, OwnedMxcUri, OwnedUserId};
-use ruma_macros::{Event, EventContent};
-use serde::{ser::SerializeStruct, Deserialize, Serialize};
-
-use super::EventContent;
+use ruma_common::{OwnedMxcUri, OwnedUserId, presence::PresenceState};
+use serde::{Deserialize, Serialize};
 
 /// Presence event.
-#[derive(Clone, Debug, Event)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[allow(clippy::exhaustive_structs)]
+#[serde(tag = "type", rename = "m.presence")]
 pub struct PresenceEvent {
     /// Data specific to the event type.
     pub content: PresenceEventContent,
@@ -20,25 +18,11 @@ pub struct PresenceEvent {
     pub sender: OwnedUserId,
 }
 
-impl Serialize for PresenceEvent {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut state = serializer.serialize_struct("PresenceEvent", 3)?;
-        state.serialize_field("type", &self.content.event_type())?;
-        state.serialize_field("content", &self.content)?;
-        state.serialize_field("sender", &self.sender)?;
-        state.end()
-    }
-}
-
 /// Informs the room of members presence.
 ///
 /// This is the only type a `PresenceEvent` can contain as its `content` field.
-#[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
-#[ruma_event(type = "m.presence")]
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct PresenceEventContent {
     /// The current avatar URL for this user.
     ///
@@ -88,15 +72,18 @@ impl PresenceEventContent {
 #[cfg(test)]
 mod tests {
     use js_int::uint;
-    use ruma_common::{mxc_uri, presence::PresenceState};
-    use serde_json::{from_value as from_json_value, json, to_value as to_json_value};
+    use ruma_common::{
+        canonical_json::assert_to_canonical_json_eq, mxc_uri, owned_mxc_uri,
+        presence::PresenceState,
+    };
+    use serde_json::{from_value as from_json_value, json};
 
     use super::{PresenceEvent, PresenceEventContent};
 
     #[test]
     fn serialization() {
         let content = PresenceEventContent {
-            avatar_url: Some(mxc_uri!("mxc://localhost/wefuiwegh8742w").to_owned()),
+            avatar_url: Some(owned_mxc_uri!("mxc://localhost/wefuiwegh8742w")),
             currently_active: Some(false),
             displayname: None,
             last_active_ago: Some(uint!(2_478_593)),
@@ -104,15 +91,16 @@ mod tests {
             status_msg: Some("Making cupcakes".into()),
         };
 
-        let json = json!({
-            "avatar_url": "mxc://localhost/wefuiwegh8742w",
-            "currently_active": false,
-            "last_active_ago": 2_478_593,
-            "presence": "online",
-            "status_msg": "Making cupcakes"
-        });
-
-        assert_eq!(to_json_value(&content).unwrap(), json);
+        assert_to_canonical_json_eq!(
+            content,
+            json!({
+                "avatar_url": "mxc://localhost/wefuiwegh8742w",
+                "currently_active": false,
+                "last_active_ago": 2_478_593,
+                "presence": "online",
+                "status_msg": "Making cupcakes",
+            }),
+        );
     }
 
     #[test]

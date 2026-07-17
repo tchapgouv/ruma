@@ -7,26 +7,24 @@
 pub mod v1 {
     //! `/v1/` ([spec])
     //!
-    //! [spec]: https://spec.matrix.org/latest/server-server-api/#put_matrixfederationv13pidonbind
-
-    use std::collections::BTreeMap;
+    //! [spec]: https://spec.matrix.org/v1.18/server-server-api/#put_matrixfederationv13pidonbind
 
     use ruma_common::{
-        api::{request, response, Metadata},
+        OwnedRoomId, OwnedUserId,
+        api::{auth_scheme::NoAuthentication, request, response},
         metadata,
+        serde::Raw,
         thirdparty::Medium,
-        OwnedRoomId, OwnedServerName, OwnedServerSigningKeyId, OwnedUserId,
     };
+    use ruma_events::room::member::SignedContent;
     use serde::{Deserialize, Serialize};
 
-    const METADATA: Metadata = metadata! {
+    metadata! {
         method: PUT,
         rate_limited: false,
-        authentication: None,
-        history: {
-            1.0 => "/_matrix/federation/v1/3pid/onbind",
-        }
-    };
+        authentication: NoAuthentication,
+        path: "/_matrix/federation/v1/3pid/onbind",
+    }
 
     /// Request type for the `bind_callback` endpoint.
     #[request]
@@ -50,6 +48,7 @@ pub mod v1 {
 
     /// Response type for the `bind_callback` endpoint.
     #[response]
+    #[derive(Default)]
     pub struct Response {}
 
     impl Request {
@@ -71,7 +70,7 @@ pub mod v1 {
 
     /// A pending invite the third party identifier has received.
     #[derive(Debug, Clone, Deserialize, Serialize)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
     pub struct ThirdPartyInvite {
         /// The type of third party invite issues.
         ///
@@ -90,8 +89,9 @@ pub mod v1 {
         /// The user ID that sent the invite.
         pub sender: OwnedUserId,
 
-        /// Signature from the identity server using a long-term private key.
-        pub signed: BTreeMap<OwnedServerName, BTreeMap<OwnedServerSigningKeyId, String>>,
+        /// A block of content which has been signed, which servers can use to verify the
+        /// third-party invite.
+        pub signed: Raw<SignedContent>,
     }
 
     impl ThirdPartyInvite {
@@ -101,9 +101,16 @@ pub mod v1 {
             mxid: OwnedUserId,
             room_id: OwnedRoomId,
             sender: OwnedUserId,
-            signed: BTreeMap<OwnedServerName, BTreeMap<OwnedServerSigningKeyId, String>>,
+            signed: Raw<SignedContent>,
         ) -> Self {
             Self { medium: Medium::Email, address, mxid, room_id, sender, signed }
+        }
+    }
+
+    impl Response {
+        /// Construct an empty response.
+        pub fn new() -> Self {
+            Self {}
         }
     }
 }

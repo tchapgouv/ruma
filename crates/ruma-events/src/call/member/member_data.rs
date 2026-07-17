@@ -12,6 +12,8 @@ use tracing::warn;
 
 use super::focus::{ActiveFocus, ActiveLivekitFocus, Focus};
 use crate::PrivOwnedStr;
+#[cfg(feature = "unstable-msc4075")]
+use crate::rtc::notification::CallIntent;
 
 /// The data object that contains the information for one membership.
 ///
@@ -22,7 +24,7 @@ use crate::PrivOwnedStr;
 /// The state event will reliably be set to empty when the user disconnects.
 #[derive(Clone, Debug)]
 #[cfg_attr(test, derive(PartialEq))]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub enum MembershipData<'a> {
     /// The legacy format (using an array of memberships for each device -> one event per user)
     Legacy(&'a LegacyMembershipData),
@@ -31,7 +33,7 @@ pub enum MembershipData<'a> {
     Session(&'a SessionMembershipData),
 }
 
-impl<'a> MembershipData<'a> {
+impl MembershipData<'_> {
     /// The application this RTC membership participates in (the session type, can be `m.call`...)
     pub fn application(&self) -> &Application {
         match self {
@@ -72,6 +74,13 @@ impl<'a> MembershipData<'a> {
         }
     }
 
+    /// The current call intent (audio or video).
+    #[cfg(feature = "unstable-msc4075")]
+    pub fn call_intent(&self) -> Option<&CallIntent> {
+        as_variant!(self.application(), Application::Call)
+            .and_then(|call| call.call_intent.as_ref())
+    }
+
     /// The application of the membership is "m.call" and the scope is "m.room".
     pub fn is_room_call(&self) -> bool {
         as_variant!(self.application(), Application::Call)
@@ -81,15 +90,6 @@ impl<'a> MembershipData<'a> {
     /// The application of the membership is "m.call".
     pub fn is_call(&self) -> bool {
         as_variant!(self.application(), Application::Call).is_some()
-    }
-
-    /// Checks if the event is expired. This is only relevant for LegacyMembershipData
-    /// returns `false` if its SessionMembershipData
-    pub fn is_expired(&self, origin_server_ts: Option<MilliSecondsSinceUnixEpoch>) -> bool {
-        match self {
-            MembershipData::Legacy(data) => data.is_expired(origin_server_ts),
-            MembershipData::Session(_) => false,
-        }
     }
 
     /// Gets the created_ts of the event.
@@ -104,13 +104,62 @@ impl<'a> MembershipData<'a> {
             MembershipData::Session(data) => data.created_ts,
         }
     }
+
+    /// Checks if the event is expired.
+    ///
+    /// Defaults to using `created_ts` of the [`MembershipData`].
+    /// If no `origin_server_ts` is provided and the event does not contain `created_ts`
+    /// the event will be considered as not expired.
+    /// In this case, a warning will be logged.
+    ///
+    /// This method needs to be called periodically to check if the event is still valid.
+    ///
+    /// # Arguments
+    ///
+    /// * `origin_server_ts` - a fallback if [`MembershipData::created_ts`] is not present
+    pub fn is_expired(&self, origin_server_ts: Option<MilliSecondsSinceUnixEpoch>) -> bool {
+        if let Some(expire_ts) = self.expires_ts(origin_server_ts) {
+            MilliSecondsSinceUnixEpoch::now() > expire_ts
+        } else {
+            // This should not be reached since we only allow events that have copied over
+            // the origin server ts. `set_created_ts_if_none`
+            warn!(
+                "Encountered a Call Member state event where the expire_ts could not be constructed."
+            );
+            false
+        }
+    }
+
+    /// The unix timestamp at which the event will expire.
+    /// This allows to determine at what time the return value of
+    /// [`MembershipData::is_expired`] will change.
+    ///
+    /// Defaults to using `created_ts` of the [`MembershipData`].
+    /// If no `origin_server_ts` is provided and the event does not contain `created_ts`
+    /// the event will be considered as not expired.
+    /// In this case, a warning will be logged.
+    ///
+    /// # Arguments
+    ///
+    /// * `origin_server_ts` - a fallback if [`MembershipData::created_ts`] is not present
+    pub fn expires_ts(
+        &self,
+        origin_server_ts: Option<MilliSecondsSinceUnixEpoch>,
+    ) -> Option<MilliSecondsSinceUnixEpoch> {
+        let expires = match &self {
+            MembershipData::Legacy(data) => data.expires,
+            MembershipData::Session(data) => data.expires,
+        };
+        let ev_created_ts = self.created_ts().or(origin_server_ts)?.to_system_time();
+        ev_created_ts.and_then(|t| MilliSecondsSinceUnixEpoch::from_system_time(t + expires))
+    }
 }
 
 /// A membership describes one of the sessions this user currently partakes.
 ///
 /// The application defines the type of the session.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct LegacyMembershipData {
     /// The type of the MatrixRTC session the membership belongs to.
     ///
@@ -133,7 +182,7 @@ pub struct LegacyMembershipData {
 
     /// Stores a copy of the `origin_server_ts` of the initial session event.
     ///
-    /// If the membership is updated this field will be used to track to
+    /// If the membership is updated this field will be used to track the
     /// original `origin_server_ts`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_ts: Option<MilliSecondsSinceUnixEpoch>,
@@ -148,34 +197,6 @@ pub struct LegacyMembershipData {
     /// 200.
     #[serde(rename = "membershipID")]
     pub membership_id: String,
-}
-
-impl LegacyMembershipData {
-    /// Checks if the event is expired.
-    ///
-    /// Defaults to using `created_ts` of the [`LegacyMembershipData`].
-    /// If no `origin_server_ts` is provided and the event does not contain `created_ts`
-    /// the event will be considered as not expired.
-    /// In this case, a warning will be logged.
-    ///
-    /// # Arguments
-    ///
-    /// * `origin_server_ts` - a fallback if [`LegacyMembershipData::created_ts`] is not present
-    pub fn is_expired(&self, origin_server_ts: Option<MilliSecondsSinceUnixEpoch>) -> bool {
-        let ev_created_ts = self.created_ts.or(origin_server_ts);
-
-        if let Some(ev_created_ts) = ev_created_ts {
-            let now = MilliSecondsSinceUnixEpoch::now().to_system_time();
-            let expire_ts = ev_created_ts.to_system_time().map(|t| t + self.expires);
-            now > expire_ts
-        } else {
-            // This should not be reached since we only allow events that have copied over
-            // the origin server ts. `set_created_ts_if_none`
-            warn!("Encountered a Call Member state event where the origin_ts (or origin_server_ts) could not be found.\
-            It is treated as a non expired event but this might be wrong.");
-            false
-        }
-    }
 }
 
 /// Initial set of fields of [`LegacyMembershipData`].
@@ -225,7 +246,7 @@ impl From<LegacyMembershipDataInit> for LegacyMembershipData {
 
 /// Stores all the information for a MatrixRTC membership. (one for each device)
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct SessionMembershipData {
     /// The type of the MatrixRTC session the membership belongs to.
     ///
@@ -246,9 +267,18 @@ pub struct SessionMembershipData {
 
     /// Stores a copy of the `origin_server_ts` of the initial session event.
     ///
-    /// This is not part of the serialized event and computed after serialization.
-    #[serde(skip)]
+    /// If the membership is updated this field will be used to track the
+    /// original `origin_server_ts`.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub created_ts: Option<MilliSecondsSinceUnixEpoch>,
+
+    /// The duration in milliseconds relative to the time this membership joined
+    /// during which the membership is valid.
+    ///
+    /// The time a member has joined is defined as:
+    /// `MIN(content.created_ts, event.origin_server_ts)`
+    #[serde(with = "ruma_common::serde::duration::ms")]
+    pub expires: Duration,
 }
 
 /// The type of the MatrixRTC session.
@@ -257,7 +287,7 @@ pub struct SessionMembershipData {
 /// type of MatrixRTC session e.g. calling (`m.call`), third-room, whiteboard could be
 /// possible applications.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 #[serde(tag = "application")]
 pub enum Application {
     /// The rtc application (session type) for VoIP call.
@@ -267,7 +297,7 @@ pub enum Application {
 
 /// Call specific parameters of a `m.call.member` event.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct CallApplicationContent {
     /// An identifier for calls.
     ///
@@ -280,6 +310,11 @@ pub struct CallApplicationContent {
 
     /// Who owns/joins/controls (can modify) the call.
     pub scope: CallScope,
+
+    /// The call intent.
+    #[serde(rename = "m.call.intent", default, skip_serializing_if = "Option::is_none")]
+    #[cfg(feature = "unstable-msc4075")]
+    pub call_intent: Option<CallIntent>,
 }
 
 impl CallApplicationContent {
@@ -291,15 +326,33 @@ impl CallApplicationContent {
     ///   the same call. Does not need to be a uuid. `""` is used for room scoped calls.
     /// * `scope` - Who owns/joins/controls (can modify) the call.
     pub fn new(call_id: String, scope: CallScope) -> Self {
-        Self { call_id, scope }
+        Self {
+            call_id,
+            scope,
+            #[cfg(feature = "unstable-msc4075")]
+            call_intent: None,
+        }
+    }
+
+    /// Initialize a [`CallApplicationContent`] with a call intent.
+    ///
+    /// # Arguments
+    ///
+    /// * `call_id` - An identifier for calls. All members using the same `call_id` will end up in
+    ///   the same call. Does not need to be a uuid. `""` is used for room scoped calls.
+    /// * `scope` - Who owns/joins/controls (can modify) the call.
+    /// * `call_intent` - Indication of whether the call is an "audio" or "video"(+audio) call.
+    #[cfg(feature = "unstable-msc4075")]
+    pub fn new_with_intent(call_id: String, scope: CallScope, call_intent: CallIntent) -> Self {
+        Self { call_id, scope, call_intent: Some(call_intent) }
     }
 }
 
 /// The call scope defines different call ownership models.
 #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/doc/string_enum.md"))]
-#[derive(Clone, PartialEq, StringEnum)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
-#[ruma_enum(rename_all = "m.snake_case")]
+#[derive(Clone, StringEnum)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
+#[ruma_enum(rename_all(prefix = "m.", rule = "snake_case"))]
 pub enum CallScope {
     /// A call which every user of a room can join and create.
     ///

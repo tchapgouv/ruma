@@ -5,41 +5,40 @@
 pub mod v3 {
     //! `/v3/` ([spec])
     //!
-    //! [spec]: https://spec.matrix.org/latest/client-server-api/#get_matrixclientv3thirdpartyuserprotocol
+    //! [spec]: https://spec.matrix.org/v1.18/client-server-api/#get_matrixclientv3thirdpartyuserprotocol
 
     use std::collections::BTreeMap;
 
     use ruma_common::{
-        api::{request, response, Metadata},
+        api::{auth_scheme::AccessToken, request, response},
         metadata,
         thirdparty::User,
     };
 
-    const METADATA: Metadata = metadata! {
+    metadata! {
         method: GET,
         rate_limited: false,
         authentication: AccessToken,
         history: {
-            1.0 => "/_matrix/client/r0/thirdparty/user/:protocol",
-            1.1 => "/_matrix/client/v3/thirdparty/user/:protocol",
+            1.0 => "/_matrix/client/r0/thirdparty/user/{protocol}",
+            1.1 => "/_matrix/client/v3/thirdparty/user/{protocol}",
         }
-    };
+    }
 
     /// Request type for the `get_user_for_protocol` endpoint.
-    #[request(error = crate::Error)]
+    #[request]
     pub struct Request {
         /// The protocol used to communicate to the third party network.
         #[ruma_api(path)]
         pub protocol: String,
 
         /// One or more custom fields that are passed to the AS to help identify the user.
-        // The specification is incorrect for this parameter. See [matrix-spec#560](https://github.com/matrix-org/matrix-spec/issues/560).
         #[ruma_api(query_all)]
         pub fields: BTreeMap<String, String>,
     }
 
     /// Response type for the `get_user_for_protocol` endpoint.
-    #[response(error = crate::Error)]
+    #[response]
     pub struct Response {
         /// List of matched third party users.
         #[ruma_api(body)]

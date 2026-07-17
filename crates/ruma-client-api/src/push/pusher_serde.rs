@@ -1,8 +1,8 @@
-use ruma_common::serde::{from_raw_json_value, JsonObject};
-use serde::{de, ser::SerializeStruct, Deserialize, Serialize};
+use ruma_common::serde::from_raw_json_value;
+use serde::{Deserialize, Serialize, de, ser::SerializeStruct};
 use serde_json::value::RawValue as RawJsonValue;
 
-use super::{EmailPusherData, Pusher, PusherIds, PusherKind};
+use super::{CustomPusherData, Pusher, PusherIds, PusherKind};
 
 #[derive(Debug, Deserialize)]
 struct PusherDeHelper {
@@ -41,9 +41,9 @@ impl Serialize for PusherKind {
                 st.serialize_field("kind", &"http")?;
                 st.serialize_field("data", data)?;
             }
-            PusherKind::Email(_) => {
+            PusherKind::Email(data) => {
                 st.serialize_field("kind", &"email")?;
-                st.serialize_field("data", &JsonObject::new())?;
+                st.serialize_field("data", data)?;
             }
             PusherKind::_Custom(custom) => {
                 st.serialize_field("kind", &custom.kind)?;
@@ -71,43 +71,78 @@ impl<'de> Deserialize<'de> for PusherKind {
 
         match kind.as_ref() {
             "http" => from_raw_json_value(&data).map(Self::Http),
-            "email" => Ok(Self::Email(EmailPusherData)),
-            _ => from_raw_json_value(&json).map(Self::_Custom),
+            "email" => from_raw_json_value(&data).map(Self::Email),
+            _ => Ok(Self::_Custom(CustomPusherData { kind, data: from_raw_json_value(&data)? })),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use assert_matches2::assert_matches;
-    use ruma_common::{push::HttpPusherData, serde::JsonObject};
-    use serde_json::{from_value as from_json_value, json, to_value as to_json_value};
+    use assert_matches2::assert_let;
+    use ruma_common::{
+        canonical_json::assert_to_canonical_json_eq, push::HttpPusherData, serde::JsonObject,
+    };
+    use serde_json::{Value as JsonValue, from_value as from_json_value, json};
 
     use crate::push::{CustomPusherData, EmailPusherData, PusherKind};
 
     #[test]
     fn serialize_email() {
-        let action = PusherKind::Email(EmailPusherData::new());
+        // With default data fields.
+        let mut data = EmailPusherData::new();
+        let action = PusherKind::Email(data.clone());
 
-        assert_eq!(
-            to_json_value(action).unwrap(),
+        assert_to_canonical_json_eq!(
+            action,
             json!({
                 "kind": "email",
                 "data": {},
+            })
+        );
+
+        // With custom data fields.
+        data.data.insert("custom_key".to_owned(), "value".into());
+        let action = PusherKind::Email(data);
+
+        assert_to_canonical_json_eq!(
+            action,
+            json!({
+                "kind": "email",
+                "data": {
+                    "custom_key": "value",
+                },
             })
         );
     }
 
     #[test]
     fn serialize_http() {
-        let action = PusherKind::Http(HttpPusherData::new("http://localhost".to_owned()));
+        // With default data fields.
+        let mut data = HttpPusherData::new("http://localhost".to_owned());
+        let action = PusherKind::Http(data.clone());
 
-        assert_eq!(
-            to_json_value(action).unwrap(),
+        assert_to_canonical_json_eq!(
+            action,
             json!({
                 "kind": "http",
                 "data": {
                     "url": "http://localhost",
+                },
+            })
+        );
+
+        // With custom data fields.
+        data.data.insert("custom_key".to_owned(), "value".into());
+        let action = PusherKind::Http(data);
+
+        assert_to_canonical_json_eq!(
+            action,
+            json!({
+                "kind": "http",
+                "data": {
+                    "url": "http://localhost",
+                    "custom_key": "value",
                 },
             })
         );
@@ -120,8 +155,8 @@ mod tests {
             data: JsonObject::new(),
         });
 
-        assert_eq!(
-            to_json_value(action).unwrap(),
+        assert_to_canonical_json_eq!(
+            action,
             json!({
                 "kind": "my.custom.kind",
                 "data": {}
@@ -131,16 +166,32 @@ mod tests {
 
     #[test]
     fn deserialize_email() {
+        // With default data fields.
         let json = json!({
             "kind": "email",
             "data": {},
         });
 
-        assert_matches!(from_json_value(json).unwrap(), PusherKind::Email(_));
+        assert_let!(PusherKind::Email(data) = from_json_value(json).unwrap());
+        assert!(data.data.is_empty());
+
+        // With custom data fields.
+        let json = json!({
+            "kind": "email",
+            "data": {
+                "custom_key": "value",
+            },
+        });
+
+        assert_let!(PusherKind::Email(data) = from_json_value(json).unwrap());
+        assert_eq!(data.data.len(), 1);
+        assert_let!(Some(JsonValue::String(custom_value)) = data.data.get("custom_key"));
+        assert_eq!(custom_value, "value");
     }
 
     #[test]
     fn deserialize_http() {
+        // With default data fields.
         let json = json!({
             "kind": "http",
             "data": {
@@ -148,9 +199,24 @@ mod tests {
             },
         });
 
-        assert_matches!(from_json_value(json).unwrap(), PusherKind::Http(data));
+        assert_let!(PusherKind::Http(data) = from_json_value(json).unwrap());
         assert_eq!(data.url, "http://localhost");
         assert_eq!(data.format, None);
+        assert!(data.data.is_empty());
+
+        // With custom data fields.
+        let json = json!({
+            "kind": "http",
+            "data": {
+                "url": "http://localhost",
+                "custom_key": "value",
+            },
+        });
+
+        assert_let!(PusherKind::Http(data) = from_json_value(json).unwrap());
+        assert_eq!(data.data.len(), 1);
+        assert_let!(Some(JsonValue::String(custom_value)) = data.data.get("custom_key"));
+        assert_eq!(custom_value, "value");
     }
 
     #[test]
@@ -160,7 +226,7 @@ mod tests {
             "data": {}
         });
 
-        assert_matches!(from_json_value(json).unwrap(), PusherKind::_Custom(custom));
+        assert_let!(PusherKind::_Custom(custom) = from_json_value(json).unwrap());
         assert_eq!(custom.kind, "my.custom.kind");
         assert!(custom.data.is_empty());
     }

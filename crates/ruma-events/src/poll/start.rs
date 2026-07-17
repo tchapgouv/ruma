@@ -2,8 +2,8 @@
 
 use std::ops::Deref;
 
-use js_int::{uint, UInt};
-use ruma_common::{serde::StringEnum, MilliSecondsSinceUnixEpoch};
+use js_int::{UInt, uint};
+use ruma_common::{MilliSecondsSinceUnixEpoch, serde::StringEnum};
 use ruma_macros::EventContent;
 use serde::{Deserialize, Serialize};
 
@@ -14,9 +14,9 @@ mod poll_answers_serde;
 use poll_answers_serde::PollAnswersDeHelper;
 
 use super::{
-    compile_poll_results,
+    PollResponseData, compile_poll_results,
     end::{PollEndEventContent, PollResultsContentBlock},
-    generate_poll_end_fallback_text, PollResponseData,
+    generate_poll_end_fallback_text,
 };
 use crate::{message::TextContentBlock, room::message::Relation};
 
@@ -30,7 +30,7 @@ use crate::{message::TextContentBlock, room::message::Relation};
 ///
 /// [`UnstablePollStartEventContent`]: super::unstable_start::UnstablePollStartEventContent
 #[derive(Clone, Debug, Serialize, Deserialize, EventContent)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 #[ruma_event(type = "m.poll.start", kind = MessageLike, without_relation)]
 pub struct PollStartEventContent {
     /// The poll content of the message.
@@ -126,7 +126,7 @@ impl OriginalSyncPollStartEvent {
 
 /// A block for poll content.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct PollContentBlock {
     /// The question of the poll.
     pub question: PollQuestion,
@@ -172,7 +172,7 @@ impl PollContentBlock {
 
 /// The question of a poll.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct PollQuestion {
     /// The text representation of the question.
     #[serde(rename = "m.text")]
@@ -187,8 +187,8 @@ impl From<TextContentBlock> for PollQuestion {
 
 /// The kind of poll.
 #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/doc/string_enum.md"))]
-#[derive(Clone, Default, PartialEq, Eq, StringEnum)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[derive(Clone, Default, StringEnum)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub enum PollKind {
     /// The results are revealed once the poll is closed.
     #[default]
@@ -264,7 +264,7 @@ impl Deref for PollAnswers {
 
 /// Poll answer.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct PollAnswer {
     /// The ID of the answer.
     ///

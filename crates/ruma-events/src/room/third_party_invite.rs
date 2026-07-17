@@ -1,8 +1,8 @@
 //! Types for the [`m.room.third_party_invite`] event.
 //!
-//! [`m.room.third_party_invite`]: https://spec.matrix.org/latest/client-server-api/#mroomthird_party_invite
+//! [`m.room.third_party_invite`]: https://spec.matrix.org/v1.18/client-server-api/#mroomthird_party_invite
 
-use ruma_common::serde::Base64;
+use ruma_common::third_party_invite::IdentityServerBase64PublicKey;
 use ruma_macros::EventContent;
 use serde::{Deserialize, Serialize};
 
@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 /// event contains a token and a public key whose private key must be used to sign the token.
 /// Any user who can present that signature may use this invitation to join the target room.
 #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 #[ruma_event(type = "m.room.third_party_invite", kind = State, state_key_type = String)]
 pub struct RoomThirdPartyInviteEventContent {
     /// A user-readable string which represents the user who has been invited.
@@ -35,8 +35,11 @@ pub struct RoomThirdPartyInviteEventContent {
     ///
     /// If the `compat-optional` feature is enabled, this field being absent in JSON will result
     /// in an empty string instead of an error when deserializing.
-    #[cfg_attr(feature = "compat-optional", serde(default = "Base64::empty"))]
-    pub public_key: Base64,
+    #[cfg_attr(
+        feature = "compat-optional",
+        serde(default = "empty_identity_server_base64_public_key")
+    )]
+    pub public_key: IdentityServerBase64PublicKey,
 
     /// Keys with which the token may be signed.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -46,14 +49,18 @@ pub struct RoomThirdPartyInviteEventContent {
 impl RoomThirdPartyInviteEventContent {
     /// Creates a new `RoomThirdPartyInviteEventContent` with the given display name, key validity
     /// url and public key.
-    pub fn new(display_name: String, key_validity_url: String, public_key: Base64) -> Self {
+    pub fn new(
+        display_name: String,
+        key_validity_url: String,
+        public_key: IdentityServerBase64PublicKey,
+    ) -> Self {
         Self { display_name, key_validity_url, public_key, public_keys: None }
     }
 }
 
 /// A public key for signing a third party invite token.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct PublicKey {
     /// An optional URL which can be fetched to validate whether the key has been revoked.
     ///
@@ -63,12 +70,18 @@ pub struct PublicKey {
     pub key_validity_url: Option<String>,
 
     /// A base64-encoded Ed25519 key with which the token must be signed.
-    pub public_key: Base64,
+    pub public_key: IdentityServerBase64PublicKey,
 }
 
 impl PublicKey {
     /// Creates a new `PublicKey` with the given base64-encoded ed25519 key.
-    pub fn new(public_key: Base64) -> Self {
+    pub fn new(public_key: IdentityServerBase64PublicKey) -> Self {
         Self { key_validity_url: None, public_key }
     }
+}
+
+/// Generate an empty [`IdentityServerBase64PublicKey`].
+#[cfg(feature = "compat-optional")]
+fn empty_identity_server_base64_public_key() -> IdentityServerBase64PublicKey {
+    IdentityServerBase64PublicKey(String::new())
 }

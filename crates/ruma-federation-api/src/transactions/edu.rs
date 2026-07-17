@@ -4,19 +4,19 @@ use std::collections::BTreeMap;
 
 use js_int::UInt;
 use ruma_common::{
+    OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedTransactionId, OwnedUserId,
     encryption::{CrossSigningKey, DeviceKeys},
     presence::PresenceState,
-    serde::{from_raw_json_value, Raw},
+    serde::{Raw, from_raw_json_value},
     to_device::DeviceIdOrAllDevices,
-    OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedTransactionId, OwnedUserId,
 };
-use ruma_events::{receipt::Receipt, AnyToDeviceEventContent, ToDeviceEventType};
-use serde::{de, Deserialize, Serialize};
-use serde_json::{value::RawValue as RawJsonValue, Value as JsonValue};
+use ruma_events::{AnyToDeviceEventContent, ToDeviceEventType, receipt::Receipt};
+use serde::{Deserialize, Serialize, de};
+use serde_json::value::RawValue as RawJsonValue;
 
 /// Type for passing ephemeral data to homeservers.
 #[derive(Clone, Debug, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 #[serde(tag = "edu_type", content = "content")]
 pub enum Edu {
     /// An EDU representing presence updates for users of the sending homeserver.
@@ -49,14 +49,8 @@ pub enum Edu {
     SigningKeyUpdate(SigningKeyUpdateContent),
 
     #[doc(hidden)]
-    _Custom(JsonValue),
-}
-
-#[derive(Debug, Deserialize)]
-struct EduDeHelper {
-    /// The message type field
-    edu_type: String,
-    content: Box<RawJsonValue>,
+    #[serde(untagged)]
+    _Custom(CustomEdu),
 }
 
 impl<'de> Deserialize<'de> for Edu {
@@ -64,6 +58,12 @@ impl<'de> Deserialize<'de> for Edu {
     where
         D: de::Deserializer<'de>,
     {
+        #[derive(Debug, Deserialize)]
+        struct EduDeHelper {
+            edu_type: String,
+            content: Box<RawJsonValue>,
+        }
+
         let json = Box::<RawJsonValue>::deserialize(deserializer)?;
         let EduDeHelper { edu_type, content } = from_raw_json_value(&json)?;
 
@@ -74,14 +74,14 @@ impl<'de> Deserialize<'de> for Edu {
             "m.device_list_update" => Self::DeviceListUpdate(from_raw_json_value(&content)?),
             "m.direct_to_device" => Self::DirectToDevice(from_raw_json_value(&content)?),
             "m.signing_key_update" => Self::SigningKeyUpdate(from_raw_json_value(&content)?),
-            _ => Self::_Custom(from_raw_json_value(&content)?),
+            _ => Self::_Custom(CustomEdu { edu_type, content }),
         })
     }
 }
 
 /// The content for "m.presence" Edu.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct PresenceContent {
     /// A list of presence updates that the receiving server is likely to be interested in.
     pub push: Vec<PresenceUpdate>,
@@ -96,7 +96,7 @@ impl PresenceContent {
 
 /// An update to the presence of a user.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct PresenceUpdate {
     /// The user ID this presence EDU is for.
     pub user_id: OwnedUserId,
@@ -133,7 +133,7 @@ impl PresenceUpdate {
 
 /// The content for "m.receipt" Edu.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct ReceiptContent {
     /// Receipts for a particular room.
     #[serde(flatten)]
@@ -149,7 +149,7 @@ impl ReceiptContent {
 
 /// Mapping between user and `ReceiptData`.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct ReceiptMap {
     /// Read receipts for users in the room.
     #[serde(rename = "m.read")]
@@ -165,7 +165,7 @@ impl ReceiptMap {
 
 /// Metadata about the event that was last read and when.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct ReceiptData {
     /// Metadata for the read receipt.
     pub data: Receipt,
@@ -183,7 +183,7 @@ impl ReceiptData {
 
 /// The content for "m.typing" Edu.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct TypingContent {
     /// The room where the user's typing status has been updated.
     pub room_id: OwnedRoomId,
@@ -204,7 +204,7 @@ impl TypingContent {
 
 /// The description of the direct-to- device message.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct DeviceListUpdateContent {
     /// The user ID who owns the device.
     pub user_id: OwnedUserId,
@@ -253,7 +253,7 @@ impl DeviceListUpdateContent {
 
 /// The description of the direct-to- device message.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct DirectDeviceContent {
     /// The user ID of the sender.
     pub sender: OwnedUserId,
@@ -291,7 +291,7 @@ pub type DirectDeviceMessages =
 
 /// The content for an `m.signing_key_update` EDU.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct SigningKeyUpdateContent {
     /// The user ID whose cross-signing keys have changed.
     pub user_id: OwnedUserId,
@@ -310,6 +310,17 @@ impl SigningKeyUpdateContent {
     pub fn new(user_id: OwnedUserId) -> Self {
         Self { user_id, master_key: None, self_signing_key: None }
     }
+}
+
+/// An unsupported EDU type.
+#[doc(hidden)]
+#[derive(Clone, Debug, Serialize)]
+pub struct CustomEdu {
+    /// The type of EDU.
+    edu_type: String,
+
+    /// The content of the EDU.
+    content: Box<RawJsonValue>,
 }
 
 #[cfg(test)]

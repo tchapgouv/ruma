@@ -1,4 +1,4 @@
-use ruma_macros::IdZst;
+use ruma_macros::IdDst;
 
 /// A Matrix transaction ID.
 ///
@@ -9,7 +9,7 @@ use ruma_macros::IdZst;
 /// `TransactionId::new()` to generate a random one. If that function is not available for you, you
 /// need to activate this crate's `rand` Cargo feature.
 #[repr(transparent)]
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, IdZst)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, IdDst)]
 pub struct TransactionId(str);
 
 impl TransactionId {
@@ -21,6 +21,6 @@ impl TransactionId {
     #[allow(clippy::new_ret_no_self)]
     pub fn new() -> OwnedTransactionId {
         let id = uuid::Uuid::new_v4();
-        Self::from_borrowed(&id.simple().to_string()).to_owned()
+        OwnedTransactionId::from_string_unchecked(id.simple().to_string())
     }
 }

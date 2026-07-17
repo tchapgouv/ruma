@@ -1,22 +1,27 @@
 #![allow(clippy::exhaustive_structs)]
 
+use std::borrow::Cow;
+
 use http::header::CONTENT_TYPE;
 use ruma_common::{
+    OwnedUserId,
     api::{
-        request, response, IncomingRequest as _, MatrixVersion, Metadata, OutgoingRequest as _,
-        OutgoingRequestAppserviceExt, SendAccessToken,
+        AppserviceUserIdentity, IncomingRequest as _, MatrixVersion, OutgoingRequest as _,
+        OutgoingRequestAppserviceExt, SupportedVersions,
+        auth_scheme::{NoAccessToken, SendAccessToken},
+        request, response,
     },
-    metadata, owned_user_id, user_id, OwnedUserId,
+    metadata, owned_user_id, user_id,
 };
 
-const METADATA: Metadata = metadata! {
+metadata! {
     method: POST,
     rate_limited: false,
-    authentication: None,
+    authentication: NoAccessToken,
     history: {
-        unstable => "/_matrix/foo/:bar/:user",
+        unstable => "/_matrix/foo/{bar}/{user}",
     }
-};
+}
 
 /// Request type for the `my_endpoint` endpoint.
 #[request]
@@ -61,13 +66,15 @@ fn request_serde() {
         bar: "barVal".to_owned(),
         user: owned_user_id!("@bazme:ruma.io"),
     };
+    let supported =
+        SupportedVersions { versions: [MatrixVersion::V1_1].into(), features: Default::default() };
 
     let http_req = req
         .clone()
         .try_into_http_request::<Vec<u8>>(
             "https://homeserver.tld",
             SendAccessToken::None,
-            &[MatrixVersion::V1_1],
+            Cow::Owned(supported),
         )
         .unwrap();
     let req2 = Request::try_from_http_request(http_req, &["barVal", "@bazme:ruma.io"]).unwrap();
@@ -90,11 +97,13 @@ fn invalid_uri_should_not_panic() {
         bar: "barVal".to_owned(),
         user: owned_user_id!("@bazme:ruma.io"),
     };
+    let supported =
+        SupportedVersions { versions: [MatrixVersion::V1_1].into(), features: Default::default() };
 
     let result = req.try_into_http_request::<Vec<u8>>(
         "invalid uri",
         SendAccessToken::None,
-        &[MatrixVersion::V1_1],
+        Cow::Owned(supported),
     );
     result.unwrap_err();
 }
@@ -109,14 +118,16 @@ fn request_with_user_id_serde() {
         bar: "barVal".to_owned(),
         user: owned_user_id!("@bazme:ruma.io"),
     };
+    let supported =
+        SupportedVersions { versions: [MatrixVersion::V1_1].into(), features: Default::default() };
 
-    let user_id = user_id!("@_virtual_:ruma.io");
+    let identity = AppserviceUserIdentity::new(user_id!("@_virtual_:ruma.io"));
     let http_req = req
-        .try_into_http_request_with_user_id::<Vec<u8>>(
+        .try_into_http_request_with_identity::<Vec<u8>>(
             "https://homeserver.tld",
             SendAccessToken::None,
-            user_id,
-            &[MatrixVersion::V1_1],
+            identity,
+            Cow::Owned(supported),
         )
         .unwrap();
 
@@ -129,23 +140,27 @@ fn request_with_user_id_serde() {
 }
 
 mod without_query {
+    use std::borrow::Cow;
+
     use http::header::CONTENT_TYPE;
     use ruma_common::{
+        OwnedUserId,
         api::{
-            request, response, MatrixVersion, Metadata, OutgoingRequestAppserviceExt,
-            SendAccessToken,
+            AppserviceUserIdentity, MatrixVersion, OutgoingRequestAppserviceExt, SupportedVersions,
+            auth_scheme::{NoAccessToken, SendAccessToken},
+            request, response,
         },
-        metadata, owned_user_id, user_id, OwnedUserId,
+        metadata, owned_user_id, user_id,
     };
 
-    const METADATA: Metadata = metadata! {
+    metadata! {
         method: POST,
         rate_limited: false,
-        authentication: None,
+        authentication: NoAccessToken,
         history: {
-            unstable => "/_matrix/foo/:bar/:user",
+            unstable => "/_matrix/foo/{bar}/{user}",
         }
-    };
+    }
 
     /// Request type for the `my_endpoint` endpoint.
     #[request]
@@ -182,14 +197,18 @@ mod without_query {
             bar: "barVal".to_owned(),
             user: owned_user_id!("@bazme:ruma.io"),
         };
+        let supported = SupportedVersions {
+            versions: [MatrixVersion::V1_1].into(),
+            features: Default::default(),
+        };
 
-        let user_id = user_id!("@_virtual_:ruma.io");
+        let identity = AppserviceUserIdentity::new(user_id!("@_virtual_:ruma.io"));
         let http_req = req
-            .try_into_http_request_with_user_id::<Vec<u8>>(
+            .try_into_http_request_with_identity::<Vec<u8>>(
                 "https://homeserver.tld",
                 SendAccessToken::None,
-                user_id,
-                &[MatrixVersion::V1_1],
+                identity,
+                Cow::Owned(supported),
             )
             .unwrap();
 

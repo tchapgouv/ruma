@@ -1,6 +1,6 @@
 //! Types for the [`m.forwarded_room_key`] event.
 //!
-//! [`m.forwarded_room_key`]: https://spec.matrix.org/latest/client-server-api/#mforwarded_room_key
+//! [`m.forwarded_room_key`]: https://spec.matrix.org/v1.18/client-server-api/#mforwarded_room_key
 
 use ruma_common::{EventEncryptionAlgorithm, OwnedRoomId};
 use ruma_macros::EventContent;
@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 /// To create an instance of this type, first create a `ToDeviceForwardedRoomKeyEventContentInit`
 /// and convert it via `ToDeviceForwardedRoomKeyEventContent::from` / `.into()`.
 #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 #[ruma_event(type = "m.forwarded_room_key", kind = ToDevice)]
 pub struct ToDeviceForwardedRoomKeyEventContent {
     /// The encryption algorithm the key in this event is to be used with.

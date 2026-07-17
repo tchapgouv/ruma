@@ -5,24 +5,22 @@
 pub mod v1 {
     //! `/v1/` ([spec])
     //!
-    //! [spec]: https://spec.matrix.org/latest/application-service-api/#get_matrixappv1thirdpartylocationprotocol
+    //! [spec]: https://spec.matrix.org/v1.18/application-service-api/#get_matrixappv1thirdpartylocationprotocol
 
     use std::collections::BTreeMap;
 
     use ruma_common::{
-        api::{request, response, Metadata},
+        api::{auth_scheme::AccessToken, request, response},
         metadata,
         thirdparty::Location,
     };
 
-    const METADATA: Metadata = metadata! {
+    metadata! {
         method: GET,
         rate_limited: false,
         authentication: AccessToken,
-        history: {
-            1.0 => "/_matrix/app/v1/thirdparty/location/:protocol",
-        }
-    };
+        path: "/_matrix/app/v1/thirdparty/location/{protocol}",
+    }
 
     /// Request type for the `get_location_for_protocol` endpoint.
     #[request]
@@ -32,7 +30,6 @@ pub mod v1 {
         pub protocol: String,
 
         /// One or more custom fields to help identify the third party location.
-        // The specification is incorrect for this parameter. See [matrix-spec#560](https://github.com/matrix-org/matrix-spec/issues/560).
         #[ruma_api(query_all)]
         pub fields: BTreeMap<String, String>,
     }

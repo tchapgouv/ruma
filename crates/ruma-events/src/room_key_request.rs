@@ -1,9 +1,9 @@
 //! Types for the [`m.room_key_request`] event.
 //!
-//! [`m.room_key_request`]: https://spec.matrix.org/latest/client-server-api/#mroom_key_request
+//! [`m.room_key_request`]: https://spec.matrix.org/v1.18/client-server-api/#mroom_key_request
 
 use ruma_common::{
-    serde::StringEnum, EventEncryptionAlgorithm, OwnedDeviceId, OwnedRoomId, OwnedTransactionId,
+    EventEncryptionAlgorithm, OwnedDeviceId, OwnedRoomId, OwnedTransactionId, serde::StringEnum,
 };
 use ruma_macros::EventContent;
 use serde::{Deserialize, Serialize};
@@ -12,7 +12,7 @@ use crate::PrivOwnedStr;
 
 /// The content of an `m.room_key_request` event.
 #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 #[ruma_event(type = "m.room_key_request", kind = ToDevice)]
 pub struct ToDeviceRoomKeyRequestEventContent {
     /// Whether this is a new key request or a cancellation of a previous request.
@@ -48,7 +48,7 @@ impl ToDeviceRoomKeyRequestEventContent {
 
 /// A new key request or a cancellation of a previous request.
 #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/doc/string_enum.md"))]
-#[derive(Clone, PartialEq, Eq, StringEnum)]
+#[derive(Clone, StringEnum)]
 #[ruma_enum(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum Action {
@@ -65,7 +65,7 @@ pub enum Action {
 
 /// Information about a requested key.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct RequestedKeyInfo {
     /// The encryption algorithm the requested key in this event is to be used with.
     pub algorithm: EventEncryptionAlgorithm,
@@ -74,8 +74,9 @@ pub struct RequestedKeyInfo {
     pub room_id: OwnedRoomId,
 
     /// The Curve25519 key of the device which initiated the session originally.
-    #[deprecated = "this field still needs to be sent but should not be used when received"]
-    pub sender_key: String,
+    #[deprecated = "Since Matrix 1.3, this field should still be sent but should not be used when received"]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sender_key: Option<String>,
 
     /// The ID of the session that the key is for.
     pub session_id: String,
@@ -91,6 +92,6 @@ impl RequestedKeyInfo {
         session_id: String,
     ) -> Self {
         #[allow(deprecated)]
-        Self { algorithm, room_id, sender_key, session_id }
+        Self { algorithm, room_id, sender_key: Some(sender_key), session_id }
     }
 }

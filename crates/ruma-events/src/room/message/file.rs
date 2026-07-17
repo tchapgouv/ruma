@@ -4,14 +4,13 @@ use serde::{Deserialize, Serialize};
 
 use super::FormattedBody;
 use crate::room::{
-    message::media_caption::{caption, formatted_caption},
     EncryptedFile, MediaSource, ThumbnailInfo,
+    message::media_caption::{caption, formatted_caption},
 };
 
 /// The payload for a file message.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
-#[serde(tag = "msgtype", rename = "m.file")]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct FileMessageEventContent {
     /// A human-readable description of the file.
     ///
@@ -67,7 +66,7 @@ impl FileMessageEventContent {
         Self { info: info.into(), ..self }
     }
 
-    /// Computes the filename for the file as defined by the [spec](https://spec.matrix.org/latest/client-server-api/#media-captions).
+    /// Computes the filename for the file as defined by the [spec](https://spec.matrix.org/v1.18/client-server-api/#media-captions).
     ///
     /// This differs from the `filename` field as this method falls back to the `body` field when
     /// the `filename` field is not set.
@@ -75,7 +74,7 @@ impl FileMessageEventContent {
         self.filename.as_deref().unwrap_or(&self.body)
     }
 
-    /// Returns the caption of the media file as defined by the [spec](https://spec.matrix.org/latest/client-server-api/#media-captions).
+    /// Returns the caption of the media file as defined by the [spec](https://spec.matrix.org/v1.18/client-server-api/#media-captions).
     ///
     /// In short, this is the `body` field if the `filename` field exists and has a different value,
     /// otherwise the media file does not have a caption.
@@ -83,7 +82,7 @@ impl FileMessageEventContent {
         caption(&self.body, self.filename.as_deref())
     }
 
-    /// Returns the formatted caption of the media file as defined by the [spec](https://spec.matrix.org/latest/client-server-api/#media-captions).
+    /// Returns the formatted caption of the media file as defined by the [spec](https://spec.matrix.org/v1.18/client-server-api/#media-captions).
     ///
     /// This is the same as `caption`, but returns the formatted body instead of the plain body.
     pub fn formatted_caption(&self) -> Option<&FormattedBody> {
@@ -93,7 +92,7 @@ impl FileMessageEventContent {
 
 /// Metadata about a file.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct FileInfo {
     /// The mimetype of the file, e.g. "application/msword".
     #[serde(skip_serializing_if = "Option::is_none")]

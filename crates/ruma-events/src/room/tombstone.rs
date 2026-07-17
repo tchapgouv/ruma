@@ -1,13 +1,13 @@
 //! Types for the [`m.room.tombstone`] event.
 //!
-//! [`m.room.tombstone`]: https://spec.matrix.org/latest/client-server-api/#mroomtombstone
+//! [`m.room.tombstone`]: https://spec.matrix.org/v1.18/client-server-api/#mroomtombstone
 
 use ruma_common::OwnedRoomId;
 use ruma_macros::EventContent;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    EmptyStateKey, EventContent, PossiblyRedactedStateEventContent, StateEventType,
+    EmptyStateKey, PossiblyRedactedStateEventContent, RedactContent, StateEventType,
     StaticEventContent,
 };
 
@@ -22,7 +22,7 @@ use crate::{
     state_key_type = EmptyStateKey,
     custom_possibly_redacted,
 )]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct RoomTombstoneEventContent {
     /// A server-defined message.
     ///
@@ -46,7 +46,7 @@ impl RoomTombstoneEventContent {
 ///
 /// This type is used when it's not obvious whether the content is redacted or not.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct PossiblyRedactedRoomTombstoneEventContent {
     /// A server-defined message.
     pub body: Option<String>,
@@ -55,18 +55,36 @@ pub struct PossiblyRedactedRoomTombstoneEventContent {
     pub replacement_room: Option<OwnedRoomId>,
 }
 
-impl EventContent for PossiblyRedactedRoomTombstoneEventContent {
-    type EventType = StateEventType;
+impl PossiblyRedactedStateEventContent for PossiblyRedactedRoomTombstoneEventContent {
+    type StateKey = EmptyStateKey;
 
-    fn event_type(&self) -> Self::EventType {
+    fn event_type(&self) -> StateEventType {
         StateEventType::RoomTombstone
     }
 }
 
-impl PossiblyRedactedStateEventContent for PossiblyRedactedRoomTombstoneEventContent {
-    type StateKey = EmptyStateKey;
+impl StaticEventContent for PossiblyRedactedRoomTombstoneEventContent {
+    const TYPE: &'static str = RoomTombstoneEventContent::TYPE;
+    type IsPrefix = <RoomTombstoneEventContent as StaticEventContent>::IsPrefix;
 }
 
-impl StaticEventContent for PossiblyRedactedRoomTombstoneEventContent {
-    const TYPE: &'static str = "m.room.tombstone";
+impl RedactContent for PossiblyRedactedRoomTombstoneEventContent {
+    type Redacted = Self;
+
+    fn redact(self, _rules: &ruma_common::room_version_rules::RedactionRules) -> Self::Redacted {
+        Self { body: None, replacement_room: None }
+    }
+}
+
+impl From<RoomTombstoneEventContent> for PossiblyRedactedRoomTombstoneEventContent {
+    fn from(value: RoomTombstoneEventContent) -> Self {
+        let RoomTombstoneEventContent { body, replacement_room } = value;
+        Self { body: Some(body), replacement_room: Some(replacement_room) }
+    }
+}
+
+impl From<RedactedRoomTombstoneEventContent> for PossiblyRedactedRoomTombstoneEventContent {
+    fn from(_value: RedactedRoomTombstoneEventContent) -> Self {
+        Self { body: None, replacement_room: None }
+    }
 }

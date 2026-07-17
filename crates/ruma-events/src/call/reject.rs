@@ -1,6 +1,6 @@
 //! Types for the [`m.call.reject`] event.
 //!
-//! [`m.call.reject`]: https://spec.matrix.org/latest/client-server-api/#mcallreject
+//! [`m.call.reject`]: https://spec.matrix.org/v1.18/client-server-api/#mcallreject
 
 use ruma_common::{OwnedVoipId, VoipVersionId};
 use ruma_macros::EventContent;
@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// Starting from VoIP version 1, this event is sent by the callee to reject an invite.
 #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 #[ruma_event(type = "m.call.reject", kind = MessageLike)]
 pub struct CallRejectEventContent {
     /// The ID of the call this event relates to.

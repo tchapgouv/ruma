@@ -5,29 +5,29 @@
 pub mod v2 {
     //! `/v2/` ([spec])
     //!
-    //! [spec]: https://spec.matrix.org/latest/identity-service-api/#get_matrixidentityv2pubkeyephemeralisvalid
+    //! [spec]: https://spec.matrix.org/v1.18/identity-service-api/#get_matrixidentityv2pubkeyephemeralisvalid
 
     use ruma_common::{
-        api::{request, response, Metadata},
+        api::{auth_scheme::NoAccessToken, request, response},
         metadata,
-        serde::Base64,
+        third_party_invite::IdentityServerBase64PublicKey,
     };
 
-    const METADATA: Metadata = metadata! {
+    metadata! {
         method: GET,
         rate_limited: false,
-        authentication: None,
+        authentication: NoAccessToken,
         history: {
             1.0 => "/_matrix/identity/v2/pubkey/ephemeral/isvalid",
         }
-    };
+    }
 
     /// Request type for the `validate_ephemeral_key` endpoint.
     #[request]
     pub struct Request {
         /// The unpadded base64-encoded short-term public key to check.
         #[ruma_api(query)]
-        pub public_key: Base64,
+        pub public_key: IdentityServerBase64PublicKey,
     }
 
     /// Response type for the `validate_ephemeral_key` endpoint.
@@ -39,7 +39,7 @@ pub mod v2 {
 
     impl Request {
         /// Create a `Request` with the given base64-encoded (unpadded) short-term public key.
-        pub fn new(public_key: Base64) -> Self {
+        pub fn new(public_key: IdentityServerBase64PublicKey) -> Self {
             Self { public_key }
         }
     }

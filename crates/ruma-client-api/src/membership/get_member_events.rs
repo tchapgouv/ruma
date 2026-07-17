@@ -5,30 +5,28 @@
 pub mod v3 {
     //! `/v3/` ([spec])
     //!
-    //! [spec]: https://spec.matrix.org/latest/client-server-api/#get_matrixclientv3roomsroomidmembers
+    //! [spec]: https://spec.matrix.org/v1.18/client-server-api/#get_matrixclientv3roomsroomidmembers
 
     use ruma_common::{
-        api::{request, response, Metadata},
-        metadata,
-        serde::{Raw, StringEnum},
         OwnedRoomId,
+        api::{auth_scheme::AccessToken, request, response},
+        metadata,
+        serde::Raw,
     };
-    use ruma_events::room::member::RoomMemberEvent;
+    use ruma_events::room::member::{MembershipState, RoomMemberEvent};
 
-    use crate::PrivOwnedStr;
-
-    const METADATA: Metadata = metadata! {
+    metadata! {
         method: GET,
         rate_limited: false,
         authentication: AccessToken,
         history: {
-            1.0 => "/_matrix/client/r0/rooms/:room_id/members",
-            1.1 => "/_matrix/client/v3/rooms/:room_id/members",
+            1.0 => "/_matrix/client/r0/rooms/{room_id}/members",
+            1.1 => "/_matrix/client/v3/rooms/{room_id}/members",
         }
-    };
+    }
 
     /// Request type for the `get_member_events` endpoint.
-    #[request(error = crate::Error)]
+    #[request]
     pub struct Request {
         /// The room to get the member events for.
         #[ruma_api(path)]
@@ -49,18 +47,18 @@ pub mod v3 {
         /// membership or is not the same as not_membership.
         #[serde(skip_serializing_if = "Option::is_none")]
         #[ruma_api(query)]
-        pub membership: Option<MembershipEventFilter>,
+        pub membership: Option<MembershipState>,
 
         /// The kind of memberships to *exclude* from the results.
         ///
         /// Defaults to no filtering if unspecified.
         #[serde(skip_serializing_if = "Option::is_none")]
         #[ruma_api(query)]
-        pub not_membership: Option<MembershipEventFilter>,
+        pub not_membership: Option<MembershipState>,
     }
 
     /// Response type for the `get_member_events` endpoint.
-    #[response(error = crate::Error)]
+    #[response]
     pub struct Response {
         /// A list of member events.
         pub chunk: Vec<Raw<RoomMemberEvent>>,
@@ -80,33 +78,11 @@ pub mod v3 {
         }
     }
 
-    /// The kind of membership events to filter for.
-    #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/doc/string_enum.md"))]
-    #[derive(Clone, PartialEq, Eq, StringEnum)]
-    #[ruma_enum(rename_all = "lowercase")]
-    #[non_exhaustive]
-    pub enum MembershipEventFilter {
-        /// The user has joined.
-        Join,
-
-        /// The user has been invited.
-        Invite,
-
-        /// The user has left.
-        Leave,
-
-        /// The user has been banned.
-        Ban,
-
-        #[doc(hidden)]
-        _Custom(PrivOwnedStr),
-    }
-
     #[cfg(all(test, feature = "server"))]
     mod tests {
         use ruma_common::api::IncomingRequest as _;
 
-        use super::{MembershipEventFilter, Request};
+        use super::{MembershipState, Request};
 
         #[test]
         fn deserialization() {
@@ -115,8 +91,8 @@ pub mod v3 {
                 .authority("example.org")
                 .path_and_query(
                     "/_matrix/client/r0/rooms/!dummy%3Aexample.org/members\
-                 ?not_membership=leave\
-                 &at=1026",
+                     ?not_membership=leave\
+                     &at=1026",
                 )
                 .build()
                 .unwrap();
@@ -130,7 +106,7 @@ pub mod v3 {
             assert_eq!(req.room_id, "!dummy:example.org");
             assert_eq!(req.at.as_deref(), Some("1026"));
             assert_eq!(req.membership, None);
-            assert_eq!(req.not_membership, Some(MembershipEventFilter::Leave));
+            assert_eq!(req.not_membership, Some(MembershipState::Leave));
         }
     }
 }

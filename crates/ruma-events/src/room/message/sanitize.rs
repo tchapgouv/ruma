@@ -1,10 +1,13 @@
 //! Convenience methods and types to sanitize text messages.
 
-/// Remove the [rich reply fallback] of the given plain text string.
+/// Remove the [rich reply] fallback of the given plain text string.
 ///
-/// [rich reply fallback]: https://spec.matrix.org/latest/client-server-api/#fallbacks-for-rich-replies
+/// [rich reply]: https://spec.matrix.org/v1.18/client-server-api/#rich-replies
 pub fn remove_plain_reply_fallback(mut s: &str) -> &str {
-    if !s.starts_with("> ") {
+    // A reply fallback must begin with a mention of the original sender between `<` and `>`, and
+    // emotes add `*` as a prefix. If there is no newline, removing the detected fallback would
+    // result in an empty string.
+    if (!s.starts_with("> <") && !s.starts_with("> * <")) || !s.contains('\n') {
         return s;
     }
 
@@ -17,11 +20,7 @@ pub fn remove_plain_reply_fallback(mut s: &str) -> &str {
     }
 
     // Strip the first line after the fallback if it is empty.
-    if let Some(rest) = s.strip_prefix('\n') {
-        rest
-    } else {
-        s
-    }
+    if let Some(rest) = s.strip_prefix('\n') { rest } else { s }
 }
 
 #[cfg(test)]

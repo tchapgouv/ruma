@@ -1,9 +1,11 @@
 //! Types for the [`m.room.avatar`] event.
 //!
-//! [`m.room.avatar`]: https://spec.matrix.org/latest/client-server-api/#mroomavatar
+//! [`m.room.avatar`]: https://spec.matrix.org/v1.18/client-server-api/#mroomavatar
 
 use js_int::UInt;
 use ruma_common::OwnedMxcUri;
+#[cfg(feature = "unstable-msc2448")]
+use ruma_common::serde::Base64;
 use ruma_macros::EventContent;
 use serde::{Deserialize, Serialize};
 
@@ -16,7 +18,7 @@ use crate::EmptyStateKey;
 ///
 /// This can be displayed alongside the room information.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, EventContent)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 #[ruma_event(type = "m.room.avatar", kind = State, state_key_type = EmptyStateKey)]
 pub struct RoomAvatarEventContent {
     /// Information about the avatar image.
@@ -36,7 +38,7 @@ impl RoomAvatarEventContent {
 
 /// Metadata about an image (specific to avatars).
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct ImageInfo {
     /// The height of the image in pixels.
     #[serde(rename = "h", skip_serializing_if = "Option::is_none")]
@@ -69,6 +71,14 @@ pub struct ImageInfo {
     #[cfg(feature = "unstable-msc2448")]
     #[serde(rename = "xyz.amorgan.blurhash", skip_serializing_if = "Option::is_none")]
     pub blurhash: Option<String>,
+
+    /// The [ThumbHash](https://evanw.github.io/thumbhash/) for this image.
+    ///
+    /// This uses the unstable prefix in
+    /// [MSC2448](https://github.com/matrix-org/matrix-spec-proposals/pull/2448).
+    #[cfg(feature = "unstable-msc2448")]
+    #[serde(rename = "xyz.amorgan.thumbhash", skip_serializing_if = "Option::is_none")]
+    pub thumbhash: Option<Base64>,
 }
 
 impl ImageInfo {

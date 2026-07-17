@@ -1,6 +1,133 @@
-# [unreleased]
+# Changelog
 
-# 0.11.0
+## Unreleased
+
+## 0.17.0
+
+Breaking changes:
+
+- Upgrade ruma-common, ruma-events and ruma-signatures
+
+Bug fixes:
+
+- Fix `m.room.member` authorization for events with `knock` membership in
+  room versions 7-9. The check that the join rule supports knocking was
+  unreachable, so any non-knock join rule was accepted.
+- Fix `mainline_sort` collision between events with no power-levels ancestor in
+  their auth chain and events whose deepest power-levels ancestor is the oldest
+  in the mainline. Mainline positions are now `Option<NonZero<usize>>`, with
+  `None` representing the no-mainline-ancestor case and sorting before all
+  chain-rooted events.
+
+## 0.16.0
+
+Breaking:
+
+- `resolve()` and `reverse_topological_power_sort()` now take
+  `EventIdSet<E::Id>`s rather than `HashSet<E::Id>`. This is an opaque set type
+  that will allow to optimize the backing implementation in the future.
+- `reverse_topological_power_sort()` now takes an `EventIdMap<E::Id, _>` rather
+  than a `HashMap<E::Id, _>`. This is an opaque map type that will allow to
+  optimize the backing implementation in the future.
+
+## 0.15.0
+
+Breaking:
+
+- The `criterion` cargo feature used for benchmarks was renamed to `__criterion`,
+  to make it obvious that it is private.
+
+## 0.14.0
+
+Breaking:
+
+- `auth_check` returns a `Result<(), String>` instead of a
+  `Result<bool, Error>`. A successful check now returns `Ok(())` instead of
+  `Ok(true)` and all failures return an `Err(_)` with a description of the check
+  that failed.
+- The variants of `Error` were changed:
+  - `Unsupported` was removed since we always take an `AuthorizationRules`
+    instead of a `RoomVersionId`.
+  - `NotFound` holds an `OwnedEventId`.
+  - The cases that were triggering an `InvalidPdu` error now trigger a
+    `MissingStateKey` error.
+  - The cases that were triggering a `SerdeJson` or a `Custom` error are either
+    ignored when coming from the `auth_check()` (see corresponding bug fix) or
+    return an `AuthEvent` error.
+- `auth_types_for_event` takes an `AuthorizationRules`, to check if restricted
+  join rules are allowed before looking for the
+  `join_authorised_via_users_server` field in `m.room.member`.
+- `resolve` takes an `AuthorizationRules` instead of a `RoomVersionId`. This
+  allows server implementations to support custom room versions. They only need
+  to provide an `AuthorizationRules` for their custom `RoomVersionId`.
+- `RoomVersion` was moved to ruma-common and renamed `RoomVersionRules`, along
+  with other changes. Check the changelog of ruma-common for more details.
+- The `event_auth` module is no longer public. Everything public inside of it
+  is already exposed at the root of the crate.
+- `auth_check` was split into 2 functions: `check_state_independent_auth_rules`
+  and `check_state_dependent_auth_rules`. The former should be called once when
+  the incoming event is received, while the latter should be called for every
+  state that should be checked.
+- `lexicographical_topological_sort()` was renamed to
+  `reverse_topological_power_sort()`, to match the name of the algorithm defined
+  in the Matrix spec.
+- Return `UserPowerLevel` in place of `Int` for `reverse_topological_power_sort`.
+- Rename `RoomCreateEvent::creator` to `RoomCreateEvent::creators`, and have it return a set of
+  user IDs instead of only ever returning one.
+- `Event::room_id()` must now return an `Option<&RoomId>`, since `m.room.create`
+  events don't have a `room_id` field in room version 12.
+- `resolve` now additionally takes the following parameters:
+  - `state_res_rules`: used to specify tweaks to apply to the state resolution algorithm.
+  - `fetch_conflicted_state_subgraph`: a function which calculates which event IDs form the
+    conflicted state subgraph of the given conflicted events.
+
+Bug fixes:
+
+- Don't propagate errors from `auth_check()` in `resolve()`. If an event fails
+  the authorization check, it should just be ignored for the resolved state.
+- Don't error on deserialization of malformed fields that are not checked in the
+  authorization rules for `m.room.create`, `m.room.member`,
+  `m.room.power_levels`, `m.room.join_rules` and `m.room.third_party_invite`
+  events.
+- Fix `auth_check` for `m.room.member` with an `invite` membership and a
+  `third_party_invite`. The `signed` object in the content is now verified
+  against the public keys in the matching `m.room.third_party_invite` event.
+- `check_state_independent_auth_rules` now performs the authorization rules
+  checks on `auth_events`.
+
+Improvements:
+
+- New types with lazy deserialization that can be used by servers over the
+  stricter types from ruma-events to access the fields of an event when received
+  over federation, to avoid erroring on malformed fields that are not checked by
+  the authorization rules:
+  - `RoomCreateEvent` for `m.room.create` events
+  - `RoomMemberEvent` for `m.room.member` events
+  - `RoomPowerLevelsEvent` for `m.room.power_levels` events
+  - `RoomJoinRulesEvent` for `m.room.join_rules` events
+  - `RoomThirdPartyInviteEvent` for `m.room.third_party_invite` events
+- Add `check_pdu_format()` to check the event format and size limits of a PDU
+  according to the Matrix specification.
+
+## 0.13.0
+
+Bug fixes:
+
+- Fix tiebreaking logic in state resolution.
+
+Improvements:
+
+- The `unstable-exhaustive-types` cargo feature was replaced by the
+  `ruma_unstable_exhaustive_types` compile-time `cfg` setting. Like all `cfg`
+  settings, it can be enabled at compile-time with the `RUSTFLAGS` environment
+  variable, or inside `.cargo/config.toml`. It can also be enabled by setting
+  the `RUMA_UNSTABLE_EXHAUSTIVE_TYPES` environment variable.
+
+## 0.12.0
+
+Upgrade `ruma-events` to 0.29.0.
+
+## 0.11.0
 
 Breaking changes:
 
@@ -14,93 +141,93 @@ Bug fixes:
 - Perform extra redaction checks on room versions 1 and 2, rather than for
   version 3 and onwards
 
-# 0.10.0
+## 0.10.0
 
 Improvements:
 
 - Add `RoomVersion::V11` according to MSC3820 / Matrix 1.8
 
-# 0.9.1
+## 0.9.1
 
 No changes for this version
 
-# 0.9.0
+## 0.9.0
 
 Bug fixes:
 
-* Fix third party invite event authorization. The event was not allowed even
+- Fix third party invite event authorization. The event was not allowed even
   after passing all the required checks, so it could fail further down the
   algorithm.
-* Allow `invite` -> `knock` membership transition
-  * The spec was determined to be wrong about rejecting it:
+- Allow `invite` -> `knock` membership transition
+  - The spec was determined to be wrong about rejecting it:
     <https://github.com/matrix-org/matrix-spec/pull/1175>
 
-# 0.8.0
+## 0.8.0
 
 Bug fixes:
 
-* Change default `invite` power level to `0`
-  * The spec was determined to be wrong about the default:
+- Change default `invite` power level to `0`
+  - The spec was determined to be wrong about the default:
     <https://github.com/matrix-org/matrix-spec/pull/1021>
 
 Improvements:
 
-* Add `m.federate` to `auth_check`:
+- Add `m.federate` to `auth_check`:
   <https://github.com/matrix-org/matrix-spec/pull/1103>
-* Add `RoomVersion::V10` (MSC3604)
-* Deserialize stringified integers for power levels without the `compat` feature
-  * Removes the `compat` feature
+- Add `RoomVersion::V10` (MSC3604)
+- Deserialize stringified integers for power levels without the `compat` feature
+  - Removes the `compat` feature
 
-# 0.7.0
+## 0.7.0
 
 Breaking changes:
 
-* `auth_check` does not require `prev_event` parameter. It was only required on
+- `auth_check` does not require `prev_event` parameter. It was only required on
   some specific cases. Previous event is now calculated on demand only when
   it's required.
 
-# 0.6.0
+## 0.6.0
 
 Breaking changes:
 
-* Upgrade dependencies
+- Upgrade dependencies
 
-# 0.5.0
+## 0.5.0
 
 Breaking changes:
 
-* Remove some trait methods from `Event`
-* Update `Event::content` signature to return `&RawJsonValue` instead of `&JsonValue`
-* The `key_fn` in `lexicographical_topological_sort` has removed the event ID from its return type
+- Remove some trait methods from `Event`
+- Update `Event::content` signature to return `&RawJsonValue` instead of `&JsonValue`
+- The `key_fn` in `lexicographical_topological_sort` has removed the event ID from its return type
   and changed to expect just the power level, not the negated power level
 
-# 0.4.1
+## 0.4.1
 
 Improvements:
 
-* Improve performance of `StateResolution::separate`
+- Improve performance of `StateResolution::separate`
 
-# 0.4.0
-
-Breaking changes:
-
-* Change the way events are supplied
-
-# 0.3.0
+## 0.4.0
 
 Breaking changes:
 
-* state_res::resolve auth_events type has been slightly changed and renamed to auth_chain_sets
-* state_res::resolve structs were changed from BTreeMap/Set to HashMap/Set
-* Upgrade dependencies
+- Change the way events are supplied
 
-# 0.2.0
+## 0.3.0
 
 Breaking changes:
 
-* Replace `Vec` by `BTreeSet` in parts of the API
-* Replace `event_map` argument with a closure to fetch events on demand
+- state_res::resolve auth_events type has been slightly changed and renamed to auth_chain_sets
+- state_res::resolve structs were changed from BTreeMap/Set to HashMap/Set
+- Upgrade dependencies
 
-# 0.1.0
+## 0.2.0
+
+Breaking changes:
+
+- Replace `Vec` by `BTreeSet` in parts of the API
+- Replace `event_map` argument with a closure to fetch events on demand
+
+## 0.1.0
 
 Initial release

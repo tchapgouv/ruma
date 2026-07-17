@@ -21,7 +21,7 @@ use crate::PrivOwnedStr;
 /// [MSC3488]: https://github.com/matrix-org/matrix-spec-proposals/pull/3488
 /// [`message`]: super::message
 #[derive(Clone, Debug, Serialize, Deserialize, EventContent)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 #[ruma_event(type = "m.location", kind = MessageLike, without_relation)]
 pub struct LocationEventContent {
     /// The text representation of the message.
@@ -89,7 +89,7 @@ impl LocationEventContent {
 
 /// Location content.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct LocationContent {
     /// A `geo:` URI representing the location.
     ///
@@ -140,11 +140,7 @@ impl ZoomLevel {
 
     /// Creates a new `ZoomLevel` with the given value.
     pub fn new(value: u8) -> Option<Self> {
-        if value > Self::MAX {
-            None
-        } else {
-            Some(Self(value.into()))
-        }
+        if value > Self::MAX { None } else { Some(Self(value.into())) }
     }
 
     /// The value of this `ZoomLevel`.
@@ -163,7 +159,7 @@ impl TryFrom<u8> for ZoomLevel {
 
 /// Asset content.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct AssetContent {
     /// The type of asset being referred to.
     #[serde(rename = "type")]
@@ -179,8 +175,8 @@ impl AssetContent {
 
 /// The type of an asset.
 #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/doc/string_enum.md"))]
-#[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord, StringEnum)]
-#[ruma_enum(rename_all = "m.snake_case")]
+#[derive(Clone, Default, StringEnum)]
+#[ruma_enum(rename_all(prefix = "m.", rule = "snake_case"))]
 #[non_exhaustive]
 pub enum AssetType {
     /// The asset is the sender of the event.

@@ -1,6 +1,6 @@
 //! Types for the [`m.push_rules`] event.
 //!
-//! [`m.push_rules`]: https://spec.matrix.org/latest/client-server-api/#mpush_rules
+//! [`m.push_rules`]: https://spec.matrix.org/v1.18/client-server-api/#mpush_rules
 
 use ruma_common::push::Ruleset;
 use ruma_macros::EventContent;
@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// Describes all push rules for a user.
 #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 #[ruma_event(type = "m.push_rules", kind = GlobalAccountData)]
 pub struct PushRulesEventContent {
     /// The global ruleset.

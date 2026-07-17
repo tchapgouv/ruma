@@ -1,20 +1,24 @@
+#![allow(unexpected_cfgs)]
+
 use bytes::BufMut;
 use ruma_common::{
     api::{
-        error::{FromHttpResponseError, IntoHttpError, MatrixError},
-        request, IncomingResponse, Metadata, OutgoingResponse,
+        IncomingResponse, OutgoingResponse,
+        auth_scheme::NoAuthentication,
+        error::{Error, FromHttpResponseError, IntoHttpError},
+        request,
     },
     metadata,
 };
 
-const METADATA: Metadata = metadata! {
+metadata! {
     method: POST, // An `http::Method` constant. No imports required.
     rate_limited: false,
-    authentication: None,
+    authentication: NoAuthentication,
     history: {
-        unstable => "/_matrix/some/endpoint/:foo",
+        unstable => "/_matrix/some/endpoint/{foo}",
     }
-};
+}
 
 #[request]
 #[derive(PartialEq)] // Make sure attributes work
@@ -27,11 +31,11 @@ pub struct Request {
 pub struct Response;
 
 impl IncomingResponse for Response {
-    type EndpointError = MatrixError;
+    type EndpointError = Error;
 
     fn try_from_http_response<T: AsRef<[u8]>>(
         _: http::Response<T>,
-    ) -> Result<Self, FromHttpResponseError<MatrixError>> {
+    ) -> Result<Self, FromHttpResponseError<Error>> {
         todo!()
     }
 }

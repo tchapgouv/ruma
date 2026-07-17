@@ -5,26 +5,28 @@
 pub mod v3 {
     //! `/v3/` ([spec])
     //!
-    //! [spec]: https://spec.matrix.org/latest/client-server-api/#get_matrixclientv3loginssoredirectidpid
+    //! [spec]: https://spec.matrix.org/v1.18/client-server-api/#get_matrixclientv3loginssoredirectidpid
 
     use http::header::{LOCATION, SET_COOKIE};
     use ruma_common::{
-        api::{request, response, Metadata},
+        api::{auth_scheme::NoAccessToken, request, response},
         metadata,
     };
 
-    const METADATA: Metadata = metadata! {
+    use crate::session::SsoRedirectAction;
+
+    metadata! {
         method: GET,
         rate_limited: false,
-        authentication: None,
+        authentication: NoAccessToken,
         history: {
-            unstable => "/_matrix/client/unstable/org.matrix.msc2858/login/sso/redirect/:idp_id",
-            1.1 => "/_matrix/client/v3/login/sso/redirect/:idp_id",
+            unstable => "/_matrix/client/unstable/org.matrix.msc2858/login/sso/redirect/{idp_id}",
+            1.1 => "/_matrix/client/v3/login/sso/redirect/{idp_id}",
         }
-    };
+    }
 
     /// Request type for the `sso_login_with_provider` endpoint.
-    #[request(error = crate::Error)]
+    #[request]
     pub struct Request {
         /// The ID of the provider to use for SSO login.
         #[ruma_api(path)]
@@ -35,10 +37,15 @@ pub mod v3 {
         #[ruma_api(query)]
         #[serde(rename = "redirectUrl")]
         pub redirect_url: String,
+
+        /// The action that the user wishes to take at the SSO redirect.
+        #[ruma_api(query)]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub action: Option<SsoRedirectAction>,
     }
 
     /// Response type for the `sso_login_with_provider` endpoint.
-    #[response(error = crate::Error, status = FOUND)]
+    #[response(status = FOUND)]
     pub struct Response {
         /// Redirect URL to the SSO identity provider.
         #[ruma_api(header = LOCATION)]
@@ -52,7 +59,7 @@ pub mod v3 {
     impl Request {
         /// Creates a new `Request` with the given identity provider ID and redirect URL.
         pub fn new(idp_id: String, redirect_url: String) -> Self {
-            Self { idp_id, redirect_url }
+            Self { idp_id, redirect_url, action: None }
         }
     }
 
@@ -65,27 +72,32 @@ pub mod v3 {
 
     #[cfg(all(test, feature = "client"))]
     mod tests {
-        use ruma_common::api::{MatrixVersion, OutgoingRequest as _, SendAccessToken};
+        use std::borrow::Cow;
+
+        use ruma_common::api::{
+            MatrixVersion, OutgoingRequest as _, SupportedVersions, auth_scheme::SendAccessToken,
+        };
 
         use super::Request;
 
         #[test]
         fn serialize_sso_login_with_provider_request_uri() {
-            let req = Request {
-                idp_id: "provider".to_owned(),
-                redirect_url: "https://example.com/sso".to_owned(),
-            }
-            .try_into_http_request::<Vec<u8>>(
-                "https://homeserver.tld",
-                SendAccessToken::None,
-                &[MatrixVersion::V1_1],
-            )
-            .unwrap();
+            let supported = SupportedVersions {
+                versions: [MatrixVersion::V1_1].into(),
+                features: Default::default(),
+            };
+            let req = Request::new("provider".to_owned(), "https://example.com/sso".to_owned())
+                .try_into_http_request::<Vec<u8>>(
+                    "https://homeserver.tld",
+                    SendAccessToken::None,
+                    Cow::Owned(supported),
+                )
+                .unwrap();
 
             assert_eq!(
-            req.uri().to_string(),
-            "https://homeserver.tld/_matrix/client/v3/login/sso/redirect/provider?redirectUrl=https%3A%2F%2Fexample.com%2Fsso"
-        );
+                req.uri().to_string(),
+                "https://homeserver.tld/_matrix/client/v3/login/sso/redirect/provider?redirectUrl=https%3A%2F%2Fexample.com%2Fsso"
+            );
         }
     }
 }

@@ -1,6 +1,6 @@
 //! Types for the [`m.call.invite`] event.
 //!
-//! [`m.call.invite`]: https://spec.matrix.org/latest/client-server-api/#mcallinvite
+//! [`m.call.invite`]: https://spec.matrix.org/v1.18/client-server-api/#mcallinvite
 
 use std::collections::BTreeMap;
 
@@ -17,7 +17,7 @@ use super::{SessionDescription, StreamMetadata};
 ///
 /// This event is sent by the caller when they wish to establish a call.
 #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 #[ruma_event(type = "m.call.invite", kind = MessageLike)]
 pub struct CallInviteEventContent {
     /// A unique identifier for the call.

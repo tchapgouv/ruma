@@ -1,6 +1,6 @@
 //! Types for the [`m.call.select_answer`] event.
 //!
-//! [`m.call.select_answer`]: https://spec.matrix.org/latest/client-server-api/#mcallselect_answer
+//! [`m.call.select_answer`]: https://spec.matrix.org/v1.18/client-server-api/#mcallselect_answer
 
 use ruma_common::{OwnedVoipId, VoipVersionId};
 use ruma_macros::EventContent;
@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// This event is sent by the caller when it has chosen an answer.
 #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 #[ruma_event(type = "m.call.select_answer", kind = MessageLike)]
 pub struct CallSelectAnswerEventContent {
     /// The ID of the call this event relates to.

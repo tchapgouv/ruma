@@ -1,26 +1,24 @@
 //! `/v2/` ([spec])
 //!
-//! [spec]: https://spec.matrix.org/latest/server-server-api/#put_matrixfederationv2inviteroomideventid
+//! [spec]: https://spec.matrix.org/v1.18/server-server-api/#put_matrixfederationv2inviteroomideventid
 
 #[cfg(feature = "unstable-msc4125")]
 use ruma_common::OwnedServerName;
 use ruma_common::{
-    api::{request, response, Metadata},
-    metadata,
-    serde::Raw,
     OwnedEventId, OwnedRoomId, RoomVersionId,
+    api::{request, response},
+    metadata,
 };
-use ruma_events::AnyStrippedStateEvent;
 use serde_json::value::RawValue as RawJsonValue;
 
-const METADATA: Metadata = metadata! {
+use crate::{authentication::ServerSignatures, membership::RawStrippedState};
+
+metadata! {
     method: PUT,
     rate_limited: false,
     authentication: ServerSignatures,
-    history: {
-        1.0 => "/_matrix/federation/v2/invite/:room_id/:event_id",
-    }
-};
+    path: "/_matrix/federation/v2/invite/{room_id}/{event_id}",
+}
 
 /// Request type for the `create_invite` endpoint.
 #[request]
@@ -40,7 +38,7 @@ pub struct Request {
     pub event: Box<RawJsonValue>,
 
     /// An optional list of simplified events to help the receiver of the invite identify the room.
-    pub invite_room_state: Vec<Raw<AnyStrippedStateEvent>>,
+    pub invite_room_state: Vec<RawStrippedState>,
 
     /// An optional list of servers the invited homeserver should attempt to join or leave via,
     /// according to [MSC4125](https://github.com/matrix-org/matrix-spec-proposals/pull/4125).
@@ -66,7 +64,7 @@ impl Request {
         event_id: OwnedEventId,
         room_version: RoomVersionId,
         event: Box<RawJsonValue>,
-        invite_room_state: Vec<Raw<AnyStrippedStateEvent>>,
+        invite_room_state: Vec<RawStrippedState>,
     ) -> Self {
         Self {
             room_id,

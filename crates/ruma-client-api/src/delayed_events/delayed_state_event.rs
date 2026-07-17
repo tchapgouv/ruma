@@ -8,29 +8,29 @@ pub mod unstable {
     //! [MSC]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
 
     use ruma_common::{
-        api::{request, response, Metadata},
+        OwnedRoomId,
+        api::{auth_scheme::AccessToken, request, response},
         metadata,
         serde::Raw,
-        OwnedRoomId,
     };
     use ruma_events::{AnyStateEventContent, StateEventContent, StateEventType};
     use serde_json::value::to_raw_value as to_raw_json_value;
 
     use crate::delayed_events::DelayParameters;
 
-    const METADATA: Metadata = metadata! {
+    metadata! {
         method: PUT,
         rate_limited: false,
         authentication: AccessToken,
         history: {
             // We use the unstable prefix for the delay query parameter but the stable v3 endpoint.
-            unstable => "/_matrix/client/v3/rooms/:room_id/state/:event_type/:state_key",
+            unstable => "/_matrix/client/v3/rooms/{room_id}/state/{event_type}/{state_key}",
         }
-    };
+    }
 
     /// Request type for the [`delayed_state_event`](crate::delayed_events::delayed_state_event)
     /// endpoint.
-    #[request(error = crate::Error)]
+    #[request]
     pub struct Request {
         /// The room to send the event to.
         #[ruma_api(path)]
@@ -58,7 +58,7 @@ pub mod unstable {
 
     /// Response type for the [`delayed_state_event`](crate::delayed_events::delayed_state_event)
     /// endpoint.
-    #[response(error = crate::Error)]
+    #[response]
     pub struct Response {
         /// The `delay_id` generated for this delayed event. Used to interact with delayed events.
         pub delay_id: String,
@@ -113,12 +113,16 @@ pub mod unstable {
 
     #[cfg(all(test, feature = "client"))]
     mod tests {
+        use std::borrow::Cow;
+
         use ruma_common::{
-            api::{MatrixVersion, OutgoingRequest, SendAccessToken},
+            api::{
+                MatrixVersion, OutgoingRequest, SupportedVersions, auth_scheme::SendAccessToken,
+            },
             owned_room_id,
+            serde::Raw,
         };
-        use ruma_events::room::topic::RoomTopicEventContent;
-        use serde_json::{json, Value as JsonValue};
+        use serde_json::{Value as JsonValue, json};
         use web_time::Duration;
 
         use super::Request;
@@ -127,17 +131,22 @@ pub mod unstable {
         fn create_delayed_event_request(
             delay_parameters: DelayParameters,
         ) -> (http::request::Parts, Vec<u8>) {
-            Request::new(
+            let supported = SupportedVersions {
+                versions: [MatrixVersion::V1_1].into(),
+                features: Default::default(),
+            };
+
+            Request::new_raw(
                 owned_room_id!("!roomid:example.org"),
                 "@userAsStateKey:example.org".to_owned(),
+                "com.example.custom_state".into(),
                 delay_parameters,
-                &RoomTopicEventContent::new("my_topic".to_owned()),
+                Raw::new(&json!({ "key": "value" })).unwrap().cast_unchecked(),
             )
-            .unwrap()
             .try_into_http_request(
                 "https://homeserver.tld",
                 SendAccessToken::IfRequired("auth_tok"),
-                &[MatrixVersion::V1_1],
+                Cow::Owned(supported),
             )
             .unwrap()
             .into_parts()
@@ -149,12 +158,12 @@ pub mod unstable {
                 timeout: Duration::from_millis(1_234_321),
             });
             assert_eq!(
-                "https://homeserver.tld/_matrix/client/v3/rooms/!roomid:example.org/state/m.room.topic/@userAsStateKey:example.org?org.matrix.msc4140.delay=1234321",
+                "https://homeserver.tld/_matrix/client/v3/rooms/!roomid:example.org/state/com.example.custom_state/@userAsStateKey:example.org?org.matrix.msc4140.delay=1234321",
                 parts.uri.to_string()
             );
             assert_eq!("PUT", parts.method.to_string());
             assert_eq!(
-                json!({"topic": "my_topic"}),
+                json!({ "key": "value" }),
                 serde_json::from_str::<JsonValue>(std::str::from_utf8(&body).unwrap()).unwrap()
             );
         }

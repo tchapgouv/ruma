@@ -5,28 +5,29 @@
 pub mod v3 {
     //! `/v3/` ([spec])
     //!
-    //! [spec]: https://spec.matrix.org/latest/client-server-api/#post_matrixclientv3joinroomidoralias
+    //! [spec]: https://spec.matrix.org/v1.18/client-server-api/#post_matrixclientv3joinroomidoralias
 
     use ruma_common::{
-        api::{response, Metadata},
-        metadata, OwnedRoomId, OwnedRoomOrAliasId, OwnedServerName,
+        OwnedRoomId, OwnedRoomOrAliasId, OwnedServerName,
+        api::{auth_scheme::AccessToken, error::Error, response},
+        metadata,
     };
 
     use crate::membership::ThirdPartySigned;
 
-    const METADATA: Metadata = metadata! {
+    metadata! {
         method: POST,
         rate_limited: true,
         authentication: AccessToken,
         history: {
-            1.0 => "/_matrix/client/r0/join/:room_id_or_alias",
-            1.1 => "/_matrix/client/v3/join/:room_id_or_alias",
+            1.0 => "/_matrix/client/r0/join/{room_id_or_alias}",
+            1.1 => "/_matrix/client/v3/join/{room_id_or_alias}",
         }
-    };
+    }
 
     /// Request type for the `join_room_by_id_or_alias` endpoint.
     #[derive(Clone, Debug)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
     pub struct Request {
         /// The room where the user should be invited.
         pub room_id_or_alias: OwnedRoomOrAliasId,
@@ -81,46 +82,50 @@ pub mod v3 {
 
     #[cfg(feature = "client")]
     impl ruma_common::api::OutgoingRequest for Request {
-        type EndpointError = crate::Error;
+        type EndpointError = Error;
         type IncomingResponse = Response;
 
-        const METADATA: Metadata = METADATA;
-
-        fn try_into_http_request<T: Default + bytes::BufMut>(
+        fn try_into_http_request<T: Default + bytes::BufMut + AsRef<[u8]>>(
             self,
             base_url: &str,
-            access_token: ruma_common::api::SendAccessToken<'_>,
-            considering_versions: &'_ [ruma_common::api::MatrixVersion],
+            access_token: ruma_common::api::auth_scheme::SendAccessToken<'_>,
+            considering: std::borrow::Cow<'_, ruma_common::api::SupportedVersions>,
         ) -> Result<http::Request<T>, ruma_common::api::error::IntoHttpError> {
-            use http::header::{self, HeaderValue};
+            use ruma_common::api::{Metadata, auth_scheme::AuthScheme};
 
-            let query_string = serde_html_form::to_string(RequestQuery {
-                server_name: self.via.clone(),
-                via: self.via,
-            })?;
+            // Only send `server_name` if the `via` parameter is not supported by the server.
+            // `via` was introduced in Matrix 1.12.
+            let server_name = if considering
+                .versions
+                .iter()
+                .rev()
+                .any(|version| version.is_superset_of(ruma_common::api::MatrixVersion::V1_12))
+            {
+                vec![]
+            } else {
+                self.via.clone()
+            };
 
-            let http_request = http::Request::builder()
-                .method(METADATA.method)
-                .uri(METADATA.make_endpoint_url(
-                    considering_versions,
+            let query_string =
+                serde_html_form::to_string(RequestQuery { server_name, via: self.via })?;
+
+            let mut http_request = http::Request::builder()
+                .method(Self::METHOD)
+                .uri(Self::make_endpoint_url(
+                    considering,
                     base_url,
                     &[&self.room_id_or_alias],
                     &query_string,
                 )?)
-                .header(header::CONTENT_TYPE, "application/json")
-                .header(
-                    header::AUTHORIZATION,
-                    HeaderValue::from_str(&format!(
-                        "Bearer {}",
-                        access_token
-                            .get_required_for_endpoint()
-                            .ok_or(ruma_common::api::error::IntoHttpError::NeedsAuthentication)?
-                    ))?,
-                )
+                .header(http::header::CONTENT_TYPE, ruma_common::http_headers::APPLICATION_JSON)
                 .body(ruma_common::serde::json_to_buf(&RequestBody {
                     third_party_signed: self.third_party_signed,
                     reason: self.reason,
                 })?)?;
+
+            Self::Authentication::add_authentication(&mut http_request, access_token).map_err(
+                |error| ruma_common::api::error::IntoHttpError::Authentication(error.into()),
+            )?;
 
             Ok(http_request)
         }
@@ -128,10 +133,8 @@ pub mod v3 {
 
     #[cfg(feature = "server")]
     impl ruma_common::api::IncomingRequest for Request {
-        type EndpointError = crate::Error;
+        type EndpointError = Error;
         type OutgoingResponse = Response;
-
-        const METADATA: Metadata = METADATA;
 
         fn try_from_http_request<B, S>(
             request: http::Request<B>,
@@ -141,12 +144,7 @@ pub mod v3 {
             B: AsRef<[u8]>,
             S: AsRef<str>,
         {
-            if request.method() != METADATA.method {
-                return Err(ruma_common::api::error::FromHttpRequestError::MethodMismatch {
-                    expected: METADATA.method,
-                    received: request.method().clone(),
-                });
-            }
+            Self::check_request_method(request.method())?;
 
             let (room_id_or_alias,) =
                 serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
@@ -176,7 +174,7 @@ pub mod v3 {
     }
 
     /// Response type for the `join_room_by_id_or_alias` endpoint.
-    #[response(error = crate::Error)]
+    #[response]
     pub struct Response {
         /// The room that the user joined.
         pub room_id: OwnedRoomId,
@@ -196,31 +194,64 @@ pub mod v3 {
         }
     }
 
-    #[cfg(all(test, any(feature = "client", feature = "server")))]
-    mod tests {
+    #[cfg(all(test, feature = "client"))]
+    mod tests_client {
+        use std::borrow::Cow;
+
         use ruma_common::{
-            api::{IncomingRequest as _, MatrixVersion, OutgoingRequest, SendAccessToken},
+            api::{
+                MatrixVersion, OutgoingRequest, SupportedVersions, auth_scheme::SendAccessToken,
+            },
             owned_room_id, owned_server_name,
         };
 
         use super::Request;
 
-        #[cfg(feature = "client")]
         #[test]
-        fn serialize_request() {
+        fn serialize_request_via_and_server_name() {
             let mut req = Request::new(owned_room_id!("!foo:b.ar").into());
             req.via = vec![owned_server_name!("f.oo")];
+            let supported = SupportedVersions {
+                versions: [MatrixVersion::V1_1].into(),
+                features: Default::default(),
+            };
+
             let req = req
                 .try_into_http_request::<Vec<u8>>(
                     "https://matrix.org",
                     SendAccessToken::IfRequired("tok"),
-                    &[MatrixVersion::V1_1],
+                    Cow::Owned(supported),
                 )
                 .unwrap();
             assert_eq!(req.uri().query(), Some("via=f.oo&server_name=f.oo"));
         }
 
-        #[cfg(feature = "server")]
+        #[test]
+        fn serialize_request_only_via() {
+            let mut req = Request::new(owned_room_id!("!foo:b.ar").into());
+            req.via = vec![owned_server_name!("f.oo")];
+            let supported = SupportedVersions {
+                versions: [MatrixVersion::V1_13].into(),
+                features: Default::default(),
+            };
+
+            let req = req
+                .try_into_http_request::<Vec<u8>>(
+                    "https://matrix.org",
+                    SendAccessToken::IfRequired("tok"),
+                    Cow::Owned(supported),
+                )
+                .unwrap();
+            assert_eq!(req.uri().query(), Some("via=f.oo"));
+        }
+    }
+
+    #[cfg(all(test, feature = "server"))]
+    mod tests_server {
+        use ruma_common::{api::IncomingRequest as _, owned_server_name};
+
+        use super::Request;
+
         #[test]
         fn deserialize_request_wrong_method() {
             Request::try_from_http_request(
@@ -234,7 +265,6 @@ pub mod v3 {
             .expect_err("Should not deserialize request with illegal method");
         }
 
-        #[cfg(feature = "server")]
         #[test]
         fn deserialize_request_only_via() {
             let req = Request::try_from_http_request(
@@ -252,7 +282,6 @@ pub mod v3 {
             assert_eq!(req.via, vec![owned_server_name!("f.oo")]);
         }
 
-        #[cfg(feature = "server")]
         #[test]
         fn deserialize_request_only_server_name() {
             let req = Request::try_from_http_request(
@@ -270,7 +299,6 @@ pub mod v3 {
             assert_eq!(req.via, vec![owned_server_name!("f.oo")]);
         }
 
-        #[cfg(feature = "server")]
         #[test]
         fn deserialize_request_via_and_server_name() {
             let req = Request::try_from_http_request(

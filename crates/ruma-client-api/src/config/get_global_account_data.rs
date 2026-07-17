@@ -5,28 +5,28 @@
 pub mod v3 {
     //! `/v3/` ([spec])
     //!
-    //! [spec]: https://spec.matrix.org/latest/client-server-api/#get_matrixclientv3useruseridaccount_datatype
+    //! [spec]: https://spec.matrix.org/v1.18/client-server-api/#get_matrixclientv3useruseridaccount_datatype
 
     use ruma_common::{
-        api::{request, response, Metadata},
+        OwnedUserId,
+        api::{auth_scheme::AccessToken, request, response},
         metadata,
         serde::Raw,
-        OwnedUserId,
     };
     use ruma_events::{AnyGlobalAccountDataEventContent, GlobalAccountDataEventType};
 
-    const METADATA: Metadata = metadata! {
+    metadata! {
         method: GET,
         rate_limited: false,
         authentication: AccessToken,
         history: {
-            1.0 => "/_matrix/client/r0/user/:user_id/account_data/:event_type",
-            1.1 => "/_matrix/client/v3/user/:user_id/account_data/:event_type",
+            1.0 => "/_matrix/client/r0/user/{user_id}/account_data/{event_type}",
+            1.1 => "/_matrix/client/v3/user/{user_id}/account_data/{event_type}",
         }
-    };
+    }
 
     /// Request type for the `get_global_account_data` endpoint.
-    #[request(error = crate::Error)]
+    #[request]
     pub struct Request {
         /// User ID of user for whom to retrieve data.
         #[ruma_api(path)]
@@ -38,14 +38,14 @@ pub mod v3 {
     }
 
     /// Response type for the `get_global_account_data` endpoint.
-    #[response(error = crate::Error)]
+    #[response]
     pub struct Response {
         /// Account data content for the given type.
         ///
         /// Since the inner type of the `Raw` does not implement `Deserialize`, you need to use
-        /// `.deserialize_as::<T>()` or `.cast_ref::<T>().deserialize_with_type()` for event
-        /// types with a variable suffix (like [`SecretStorageKeyEventContent`]) to
-        /// deserialize it.
+        /// `.deserialize_as_unchecked::<T>()` or
+        /// `.cast_ref_unchecked::<T>().deserialize_with_type()` for event types with a
+        /// variable suffix (like [`SecretStorageKeyEventContent`]) to deserialize it.
         ///
         /// [`SecretStorageKeyEventContent`]: ruma_events::secret_storage::key::SecretStorageKeyEventContent
         #[ruma_api(body)]

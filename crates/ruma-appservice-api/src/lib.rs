@@ -3,7 +3,7 @@
 //! (De)serializable types for the [Matrix Application Service API][appservice-api].
 //! These types can be shared by application service and server code.
 //!
-//! [appservice-api]: https://spec.matrix.org/latest/application-service-api/
+//! [appservice-api]: https://spec.matrix.org/v1.18/application-service-api/
 
 #![warn(missing_docs)]
 
@@ -16,9 +16,9 @@ pub mod thirdparty;
 
 /// A namespace defined by an application service.
 ///
-/// Used for [appservice registration](https://spec.matrix.org/latest/application-service-api/#registration).
+/// Used for [appservice registration](https://spec.matrix.org/v1.18/application-service-api/#registration).
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct Namespace {
     /// Whether this application service has exclusive access to events within this namespace.
     pub exclusive: bool,
@@ -36,9 +36,9 @@ impl Namespace {
 
 /// Namespaces defined by an application service.
 ///
-/// Used for [appservice registration](https://spec.matrix.org/latest/application-service-api/#registration).
+/// Used for [appservice registration](https://spec.matrix.org/v1.18/application-service-api/#registration).
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct Namespaces {
     /// Events which are sent from certain users.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -66,9 +66,9 @@ impl Namespaces {
 /// To create an instance of this type, first create a `RegistrationInit` and convert it via
 /// `Registration::from` / `.into()`.
 ///
-/// Used for [appservice registration](https://spec.matrix.org/latest/application-service-api/#registration).
+/// Used for [appservice registration](https://spec.matrix.org/v1.18/application-service-api/#registration).
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 pub struct Registration {
     /// A unique, user - defined ID of the application service which will never change.
     pub id: String,
@@ -76,6 +76,7 @@ pub struct Registration {
     /// The URL for the application service.
     ///
     /// Optionally set to `null` if no traffic is required.
+    #[serde(deserialize_with = "Option::deserialize")]
     pub url: Option<String>,
 
     /// A unique token for application services to use to authenticate requests to Homeservers.
@@ -99,6 +100,12 @@ pub struct Registration {
     /// The external protocols which the application service provides (e.g. IRC).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub protocols: Option<Vec<String>>,
+
+    /// Whether the application service wants to receive ephemeral data.
+    ///
+    /// Defaults to `false`.
+    #[serde(default, skip_serializing_if = "ruma_common::serde::is_default")]
+    pub receive_ephemeral: bool,
 }
 
 /// Initial set of fields of `Registration`.
@@ -106,7 +113,7 @@ pub struct Registration {
 /// This struct will not be updated even if additional fields are added to `Registration` in a new
 /// (non-breaking) release of the Matrix specification.
 ///
-/// Used for [appservice registration](https://spec.matrix.org/latest/application-service-api/#registration).
+/// Used for [appservice registration](https://spec.matrix.org/v1.18/application-service-api/#registration).
 #[derive(Debug)]
 #[allow(clippy::exhaustive_structs)]
 pub struct RegistrationInit {
@@ -151,6 +158,16 @@ impl From<RegistrationInit> for Registration {
             rate_limited,
             protocols,
         } = init;
-        Self { id, url, as_token, hs_token, sender_localpart, namespaces, rate_limited, protocols }
+        Self {
+            id,
+            url,
+            as_token,
+            hs_token,
+            sender_localpart,
+            namespaces,
+            rate_limited,
+            protocols,
+            receive_ephemeral: false,
+        }
     }
 }

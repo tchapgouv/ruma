@@ -1,6 +1,6 @@
 //! Types for the [`m.room.guest_access`] event.
 //!
-//! [`m.room.guest_access`]: https://spec.matrix.org/latest/client-server-api/#mroomguest_access
+//! [`m.room.guest_access`]: https://spec.matrix.org/v1.18/client-server-api/#mroomguest_access
 
 use ruma_common::serde::StringEnum;
 use ruma_macros::EventContent;
@@ -15,7 +15,7 @@ use crate::{EmptyStateKey, PrivOwnedStr};
 /// This event controls whether guest users are allowed to join rooms. If this event is absent,
 /// servers should act as if it is present and has the value `GuestAccess::Forbidden`.
 #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 #[ruma_event(type = "m.room.guest_access", kind = State, state_key_type = EmptyStateKey)]
 pub struct RoomGuestAccessEventContent {
     /// A policy for guest user access to a room.
@@ -51,7 +51,7 @@ impl SyncRoomGuestAccessEvent {
 
 /// A policy for guest user access to a room.
 #[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/doc/string_enum.md"))]
-#[derive(Clone, PartialEq, Eq, StringEnum)]
+#[derive(Clone, StringEnum)]
 #[ruma_enum(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum GuestAccess {

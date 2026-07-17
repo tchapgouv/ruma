@@ -1,6 +1,6 @@
 //! Types for the [`m.call.sdp_stream_metadata_changed`] event.
 //!
-//! [`m.call.sdp_stream_metadata_changed`]: https://spec.matrix.org/latest/client-server-api/#mcallsdp_stream_metadata_changed
+//! [`m.call.sdp_stream_metadata_changed`]: https://spec.matrix.org/v1.18/client-server-api/#mcallsdp_stream_metadata_changed
 
 use std::collections::BTreeMap;
 
@@ -14,7 +14,7 @@ use super::StreamMetadata;
 ///
 /// This event is sent by any party when a stream metadata changes but no negotiation is required.
 #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 #[ruma_event(type = "m.call.sdp_stream_metadata_changed", alias = "org.matrix.call.sdp_stream_metadata_changed", kind = MessageLike)]
 pub struct CallSdpStreamMetadataChangedEventContent {
     /// A unique identifier for the call.

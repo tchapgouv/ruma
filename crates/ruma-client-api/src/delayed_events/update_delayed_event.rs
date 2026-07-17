@@ -9,26 +9,26 @@ pub mod unstable {
     //! [MSC]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
 
     use ruma_common::{
-        api::{request, response, Metadata},
+        api::{auth_scheme::AccessToken, request, response},
         metadata,
         serde::StringEnum,
     };
 
     use crate::PrivOwnedStr;
 
-    const METADATA: Metadata = metadata! {
+    metadata! {
         method: POST,
         rate_limited: true,
         authentication: AccessToken,
         history: {
-            unstable => "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/:delay_id",
+            unstable("org.matrix.msc4140") => "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}",
         }
-    };
+    }
 
     /// The possible update actions we can do for updating a delayed event.
     #[derive(Clone, StringEnum)]
     #[ruma_enum(rename_all = "lowercase")]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
     pub enum UpdateAction {
         /// Restart the delayed event timeout. (heartbeat ping)
         Restart,
@@ -43,7 +43,7 @@ pub mod unstable {
     }
     /// Request type for the [`update_delayed_event`](crate::delayed_events::update_delayed_event)
     /// endpoint.
-    #[request(error = crate::Error)]
+    #[request]
     pub struct Request {
         /// The delay id that we want to update.
         #[ruma_api(path)]
@@ -61,7 +61,7 @@ pub mod unstable {
 
     /// Response type for the [`update_delayed_event`](crate::delayed_events::update_delayed_event)
     /// endpoint.
-    #[response(error = crate::Error)]
+    #[response]
     pub struct Response {}
     impl Response {
         /// Creates a new empty response for the
@@ -73,18 +73,26 @@ pub mod unstable {
 
     #[cfg(all(test, feature = "client"))]
     mod tests {
-        use ruma_common::api::{MatrixVersion, OutgoingRequest, SendAccessToken};
-        use serde_json::{json, Value as JsonValue};
+        use std::borrow::Cow;
+
+        use ruma_common::api::{
+            MatrixVersion, OutgoingRequest, SupportedVersions, auth_scheme::SendAccessToken,
+        };
+        use serde_json::{Value as JsonValue, json};
 
         use super::{Request, UpdateAction};
         #[test]
         fn serialize_update_delayed_event_request() {
+            let supported = SupportedVersions {
+                versions: [MatrixVersion::V1_1].into(),
+                features: Default::default(),
+            };
             let request: http::Request<Vec<u8>> =
                 Request::new("1234".to_owned(), UpdateAction::Cancel)
                     .try_into_http_request(
                         "https://homeserver.tld",
                         SendAccessToken::IfRequired("auth_tok"),
-                        &[MatrixVersion::V1_1],
+                        Cow::Owned(supported),
                     )
                     .unwrap();
 

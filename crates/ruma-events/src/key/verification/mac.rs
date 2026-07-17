@@ -1,10 +1,10 @@
 //! Types for the [`m.key.verification.mac`] event.
 //!
-//! [`m.key.verification.mac`]: https://spec.matrix.org/latest/client-server-api/#mkeyverificationmac
+//! [`m.key.verification.mac`]: https://spec.matrix.org/v1.18/client-server-api/#mkeyverificationmac
 
 use std::collections::BTreeMap;
 
-use ruma_common::{serde::Base64, OwnedTransactionId};
+use ruma_common::{OwnedTransactionId, serde::Base64};
 use ruma_macros::EventContent;
 use serde::{Deserialize, Serialize};
 
@@ -14,7 +14,7 @@ use crate::relation::Reference;
 ///
 /// Sends the MAC of a device's key to the partner device.
 #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 #[ruma_event(type = "m.key.verification.mac", kind = ToDevice)]
 pub struct ToDeviceKeyVerificationMacEventContent {
     /// An opaque identifier for the verification process.
@@ -48,7 +48,7 @@ impl ToDeviceKeyVerificationMacEventContent {
 ///
 /// Sends the MAC of a device's key to the partner device.
 #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
-#[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+#[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
 #[ruma_event(type = "m.key.verification.mac", kind = MessageLike)]
 pub struct KeyVerificationMacEventContent {
     /// A map of the key ID to the MAC of the key, using the algorithm in the verification process.

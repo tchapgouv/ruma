@@ -5,50 +5,40 @@
 pub mod v1 {
     //! `/v1/` ([spec])
     //!
-    //! [spec]: https://spec.matrix.org/latest/application-service-api/#put_matrixappv1transactionstxnid
+    //! [spec]: https://spec.matrix.org/v1.18/application-service-api/#put_matrixappv1transactionstxnid
 
-    #[cfg(any(feature = "unstable-msc2409", feature = "unstable-msc3202"))]
-    use std::collections::BTreeMap;
-    #[cfg(feature = "unstable-msc2409")]
-    use std::{
-        collections::btree_map,
-        ops::{Deref, DerefMut},
-    };
-
-    #[cfg(any(feature = "unstable-msc2409", feature = "unstable-msc3202"))]
-    use js_int::UInt;
-    #[cfg(any(feature = "unstable-msc2409", feature = "unstable-msc3202"))]
-    use ruma_common::OwnedUserId;
-    use ruma_common::{
-        api::{request, response, Metadata},
-        metadata,
-        serde::Raw,
-        OwnedTransactionId,
-    };
-    #[cfg(feature = "unstable-msc2409")]
-    use ruma_common::{
-        presence::PresenceState, serde::from_raw_json_value, OwnedEventId, OwnedRoomId,
-    };
+    use std::borrow::Cow;
     #[cfg(feature = "unstable-msc3202")]
-    use ruma_common::{DeviceKeyAlgorithm, OwnedDeviceId};
-    use ruma_events::AnyTimelineEvent;
-    #[cfg(feature = "unstable-msc2409")]
-    use ruma_events::{receipt::Receipt, AnyToDeviceEvent};
-    #[cfg(feature = "unstable-msc2409")]
-    use serde::Deserializer;
-    #[cfg(any(feature = "unstable-msc2409", feature = "unstable-msc3202"))]
-    use serde::{Deserialize, Serialize};
-    #[cfg(feature = "unstable-msc2409")]
-    use serde_json::{value::RawValue as RawJsonValue, Value as JsonValue};
+    use std::collections::BTreeMap;
 
-    const METADATA: Metadata = metadata! {
+    #[cfg(feature = "unstable-msc3202")]
+    use js_int::UInt;
+    #[cfg(feature = "unstable-msc3202")]
+    use ruma_common::OneTimeKeyAlgorithm;
+    #[cfg(any(feature = "unstable-msc3202", feature = "unstable-msc4203"))]
+    use ruma_common::{OwnedDeviceId, OwnedUserId};
+    use ruma_common::{
+        OwnedTransactionId,
+        api::{auth_scheme::AccessToken, request, response},
+        metadata,
+        serde::{JsonObject, Raw, from_raw_json_value},
+    };
+    #[cfg(feature = "unstable-msc4203")]
+    use ruma_common::{UserId, serde::JsonCastable};
+    use ruma_events::{
+        AnyTimelineEvent, presence::PresenceEvent, receipt::ReceiptEvent, typing::TypingEvent,
+    };
+    #[cfg(feature = "unstable-msc4203")]
+    use ruma_events::{AnyToDeviceEvent, AnyToDeviceEventContent, ToDeviceEventType};
+    use serde::{Deserialize, Deserializer, Serialize};
+    use serde_json::value::{RawValue as RawJsonValue, Value as JsonValue};
+
+    metadata! {
         method: PUT,
         rate_limited: false,
         authentication: AccessToken,
-        history: {
-            1.0 => "/_matrix/app/v1/transactions/:txn_id",
-        }
-    };
+        path: "/_matrix/app/v1/transactions/{txn_id}",
+    }
 
     /// Request type for the `push_events` endpoint.
     #[request]
@@ -80,7 +70,7 @@ pub mod v1 {
             rename = "org.matrix.msc3202.device_one_time_keys_count"
         )]
         pub device_one_time_keys_count:
-            BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, BTreeMap<DeviceKeyAlgorithm, UInt>>>,
+            BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, BTreeMap<OneTimeKeyAlgorithm, UInt>>>,
 
         /// A list of key algorithms for which the server has an unused fallback key for the
         /// device.
@@ -91,25 +81,20 @@ pub mod v1 {
             rename = "org.matrix.msc3202.device_unused_fallback_key_types"
         )]
         pub device_unused_fallback_key_types:
-            BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, Vec<DeviceKeyAlgorithm>>>,
+            BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, Vec<OneTimeKeyAlgorithm>>>,
 
-        /// A list of EDUs.
-        #[cfg(feature = "unstable-msc2409")]
-        #[serde(
-            default,
-            skip_serializing_if = "<[_]>::is_empty",
-            rename = "de.sorunome.msc2409.ephemeral"
-        )]
-        pub ephemeral: Vec<Edu>,
+        /// A list of ephemeral data.
+        #[serde(default, skip_serializing_if = "<[_]>::is_empty")]
+        pub ephemeral: Vec<Raw<EphemeralData>>,
 
         /// A list of to-device messages.
-        #[cfg(feature = "unstable-msc2409")]
+        #[cfg(feature = "unstable-msc4203")]
         #[serde(
             default,
             skip_serializing_if = "<[_]>::is_empty",
             rename = "de.sorunome.msc2409.to_device"
         )]
-        pub to_device: Vec<Raw<AnyToDeviceEvent>>,
+        pub to_device: Vec<Raw<AnyAppserviceToDeviceEvent>>,
     }
 
     /// Response type for the `push_events` endpoint.
@@ -129,9 +114,8 @@ pub mod v1 {
                 device_one_time_keys_count: BTreeMap::new(),
                 #[cfg(feature = "unstable-msc3202")]
                 device_unused_fallback_key_types: BTreeMap::new(),
-                #[cfg(feature = "unstable-msc2409")]
                 ephemeral: Vec::new(),
-                #[cfg(feature = "unstable-msc2409")]
+                #[cfg(feature = "unstable-msc4203")]
                 to_device: Vec::new(),
             }
         }
@@ -146,7 +130,7 @@ pub mod v1 {
 
     /// Information on E2E device updates.
     #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
     #[cfg(feature = "unstable-msc3202")]
     pub struct DeviceLists {
         /// List of users who have updated their device identity keys or who now
@@ -173,230 +157,192 @@ pub mod v1 {
         }
     }
 
-    /// Type for passing ephemeral data to homeservers.
-    #[cfg(feature = "unstable-msc2409")]
+    /// Type for passing ephemeral data to application services.
     #[derive(Clone, Debug, Serialize)]
-    #[non_exhaustive]
-    pub enum Edu {
-        /// An EDU representing presence updates for users of the sending homeserver.
-        Presence(PresenceContent),
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
+    #[serde(untagged)]
+    pub enum EphemeralData {
+        /// A presence update for a user.
+        Presence(PresenceEvent),
 
-        /// An EDU representing receipt updates for users of the sending homeserver.
-        Receipt(ReceiptContent),
+        /// A receipt update for a room.
+        Receipt(ReceiptEvent),
 
-        /// A typing notification EDU for a user in a room.
-        Typing(TypingContent),
+        /// A typing notification update for a room.
+        Typing(TypingEvent),
 
         #[doc(hidden)]
-        #[serde(skip)]
-        _Custom(JsonValue),
+        _Custom(_CustomEphemeralData),
     }
 
-    #[derive(Debug, Deserialize)]
-    #[cfg(feature = "unstable-msc2409")]
-    struct EduDeHelper {
-        /// The message type field
-        r#type: String,
-        content: Box<RawJsonValue>,
-    }
-
-    #[cfg(feature = "unstable-msc2409")]
-    impl<'de> Deserialize<'de> for Edu {
-        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            let json = Box::<RawJsonValue>::deserialize(deserializer)?;
-            let EduDeHelper { r#type, content } = from_raw_json_value(&json)?;
-
-            Ok(match r#type.as_ref() {
-                "m.presence" => Self::Presence(from_raw_json_value(&content)?),
-                "m.receipt" => Self::Receipt(from_raw_json_value(&content)?),
-                "m.typing" => Self::Typing(from_raw_json_value(&content)?),
-                _ => Self::_Custom(from_raw_json_value(&content)?),
-            })
+    impl EphemeralData {
+        /// A reference to the `type` string of the data.
+        pub fn data_type(&self) -> &str {
+            match self {
+                Self::Presence(_) => "m.presence",
+                Self::Receipt(_) => "m.receipt",
+                Self::Typing(_) => "m.typing",
+                Self::_Custom(c) => &c.data_type,
+            }
         }
-    }
 
-    /// The content for "m.presence" Edu.
-    #[cfg(feature = "unstable-msc2409")]
-    #[derive(Clone, Debug, Deserialize, Serialize)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
-    pub struct PresenceContent {
-        /// A list of presence updates that the receiving server is likely to be interested in.
-        pub push: Vec<PresenceUpdate>,
-    }
-
-    #[cfg(feature = "unstable-msc2409")]
-    impl PresenceContent {
-        /// Creates a new `PresenceContent`.
-        pub fn new(push: Vec<PresenceUpdate>) -> Self {
-            Self { push }
-        }
-    }
-
-    /// An update to the presence of a user.
-    #[cfg(feature = "unstable-msc2409")]
-    #[derive(Clone, Debug, Deserialize, Serialize)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
-    pub struct PresenceUpdate {
-        /// The user ID this presence EDU is for.
-        pub user_id: OwnedUserId,
-
-        /// The presence of the user.
-        pub presence: PresenceState,
-
-        /// An optional description to accompany the presence.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        pub status_msg: Option<String>,
-
-        /// The number of milliseconds that have elapsed since the user last did something.
-        pub last_active_ago: UInt,
-
-        /// Whether or not the user is currently active.
+        /// The data as a JSON object.
         ///
-        /// Defaults to false.
-        #[serde(default, skip_serializing_if = "ruma_common::serde::is_default")]
-        pub currently_active: bool,
-    }
+        /// Prefer to use the public variants of `EphemeralData` where possible; this method is
+        /// meant to be used for unsupported data types only.
+        pub fn data(&self) -> Cow<'_, JsonObject> {
+            fn serialize<T: Serialize>(obj: &T) -> JsonObject {
+                match serde_json::to_value(obj).expect("ephemeral data serialization to succeed") {
+                    JsonValue::Object(obj) => obj,
+                    _ => panic!("all ephemeral data types must serialize to objects"),
+                }
+            }
 
-    #[cfg(feature = "unstable-msc2409")]
-    impl PresenceUpdate {
-        /// Creates a new `PresenceUpdate` with the given `user_id`, `presence` and `last_activity`.
-        pub fn new(user_id: OwnedUserId, presence: PresenceState, last_activity: UInt) -> Self {
-            Self {
-                user_id,
-                presence,
-                last_active_ago: last_activity,
-                status_msg: None,
-                currently_active: false,
+            match self {
+                Self::Presence(d) => Cow::Owned(serialize(d)),
+                Self::Receipt(d) => Cow::Owned(serialize(d)),
+                Self::Typing(d) => Cow::Owned(serialize(d)),
+                Self::_Custom(c) => Cow::Borrowed(&c.data),
             }
         }
     }
 
-    /// The content for "m.receipt" Edu.
-    #[cfg(feature = "unstable-msc2409")]
-    #[derive(Clone, Debug, Deserialize, Serialize)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
-    #[serde(transparent)]
-    pub struct ReceiptContent(pub BTreeMap<OwnedRoomId, ReceiptMap>);
-
-    #[cfg(feature = "unstable-msc2409")]
-    impl ReceiptContent {
-        /// Creates a new `ReceiptContent`.
-        pub fn new(receipts: BTreeMap<OwnedRoomId, ReceiptMap>) -> Self {
-            Self(receipts)
-        }
-    }
-
-    #[cfg(feature = "unstable-msc2409")]
-    impl Deref for ReceiptContent {
-        type Target = BTreeMap<OwnedRoomId, ReceiptMap>;
-
-        fn deref(&self) -> &Self::Target {
-            &self.0
-        }
-    }
-
-    #[cfg(feature = "unstable-msc2409")]
-    impl DerefMut for ReceiptContent {
-        fn deref_mut(&mut self) -> &mut Self::Target {
-            &mut self.0
-        }
-    }
-
-    #[cfg(feature = "unstable-msc2409")]
-    impl IntoIterator for ReceiptContent {
-        type Item = (OwnedRoomId, ReceiptMap);
-        type IntoIter = btree_map::IntoIter<OwnedRoomId, ReceiptMap>;
-
-        fn into_iter(self) -> Self::IntoIter {
-            self.0.into_iter()
-        }
-    }
-
-    #[cfg(feature = "unstable-msc2409")]
-    impl FromIterator<(OwnedRoomId, ReceiptMap)> for ReceiptContent {
-        fn from_iter<T>(iter: T) -> Self
+    impl<'de> Deserialize<'de> for EphemeralData {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
         where
-            T: IntoIterator<Item = (OwnedRoomId, ReceiptMap)>,
+            D: Deserializer<'de>,
         {
-            Self(BTreeMap::from_iter(iter))
+            #[derive(Deserialize)]
+            struct EphemeralDataDeHelper {
+                /// The data type.
+                #[serde(rename = "type")]
+                data_type: String,
+            }
+
+            let json = Box::<RawJsonValue>::deserialize(deserializer)?;
+            let EphemeralDataDeHelper { data_type } = from_raw_json_value(&json)?;
+
+            Ok(match data_type.as_ref() {
+                "m.presence" => Self::Presence(from_raw_json_value(&json)?),
+                "m.receipt" => Self::Receipt(from_raw_json_value(&json)?),
+                "m.typing" => Self::Typing(from_raw_json_value(&json)?),
+                _ => Self::_Custom(_CustomEphemeralData {
+                    data_type,
+                    data: from_raw_json_value(&json)?,
+                }),
+            })
         }
     }
 
-    /// Mapping between user and `ReceiptData`.
-    #[cfg(feature = "unstable-msc2409")]
-    #[derive(Clone, Debug, Deserialize, Serialize)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
-    pub struct ReceiptMap {
-        /// Read receipts for users in the room.
-        #[serde(rename = "m.read")]
-        pub read: BTreeMap<OwnedUserId, ReceiptData>,
+    /// Ephemeral data with an unknown type.
+    #[doc(hidden)]
+    #[derive(Debug, Clone)]
+    pub struct _CustomEphemeralData {
+        /// The type of the data.
+        data_type: String,
+        /// The data.
+        data: JsonObject,
     }
 
-    #[cfg(feature = "unstable-msc2409")]
-    impl ReceiptMap {
-        /// Creates a new `ReceiptMap`.
-        pub fn new(read: BTreeMap<OwnedUserId, ReceiptData>) -> Self {
-            Self { read }
+    impl Serialize for _CustomEphemeralData {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            self.data.serialize(serializer)
         }
     }
 
-    /// Metadata about the event that was last read and when.
-    #[cfg(feature = "unstable-msc2409")]
-    #[derive(Clone, Debug, Deserialize, Serialize)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
-    pub struct ReceiptData {
-        /// Metadata for the read receipt.
-        pub data: Receipt,
+    /// An event sent using send-to-device messaging with additional fields when pushed to an
+    /// application service.
+    #[derive(Clone, Debug)]
+    #[cfg_attr(not(ruma_unstable_exhaustive_types), non_exhaustive)]
+    #[cfg(feature = "unstable-msc4203")]
+    pub struct AnyAppserviceToDeviceEvent {
+        /// The to-device event.
+        pub event: AnyToDeviceEvent,
 
-        /// The extremity event ID the user has read up to.
-        pub event_ids: Vec<OwnedEventId>,
+        /// The fully-qualified user ID of the intended recipient.
+        pub to_user_id: OwnedUserId,
+
+        /// The device ID of the intended recipient.
+        pub to_device_id: OwnedDeviceId,
     }
 
-    #[cfg(feature = "unstable-msc2409")]
-    impl ReceiptData {
-        /// Creates a new `ReceiptData`.
-        pub fn new(data: Receipt, event_ids: Vec<OwnedEventId>) -> Self {
-            Self { data, event_ids }
+    #[cfg(feature = "unstable-msc4203")]
+    impl AnyAppserviceToDeviceEvent {
+        /// Construct a new `AnyAppserviceToDeviceEvent` with the given event and recipient
+        /// information.
+        pub fn new(
+            event: AnyToDeviceEvent,
+            to_user_id: OwnedUserId,
+            to_device_id: OwnedDeviceId,
+        ) -> Self {
+            Self { event, to_user_id, to_device_id }
+        }
+
+        /// The fully-qualified ID of the user who sent this event.
+        pub fn sender(&self) -> &UserId {
+            self.event.sender()
+        }
+
+        /// The event type of the to-device event.
+        pub fn event_type(&self) -> ToDeviceEventType {
+            self.event.event_type()
+        }
+
+        /// The content of the to-device event.
+        pub fn content(&self) -> AnyToDeviceEventContent {
+            self.event.content()
         }
     }
 
-    /// The content for "m.typing" Edu.
-    #[cfg(feature = "unstable-msc2409")]
-    #[derive(Clone, Debug, Deserialize, Serialize)]
-    #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
-    pub struct TypingContent {
-        /// The room where the user's typing status has been updated.
-        pub room_id: OwnedRoomId,
+    #[cfg(feature = "unstable-msc4203")]
+    impl<'de> Deserialize<'de> for AnyAppserviceToDeviceEvent {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            #[derive(Deserialize)]
+            struct AppserviceFields {
+                to_user_id: OwnedUserId,
+                to_device_id: OwnedDeviceId,
+            }
 
-        /// The user ID that has had their typing status changed.
-        pub user_id: OwnedUserId,
+            let json = Box::<RawJsonValue>::deserialize(deserializer)?;
 
-        /// Whether the user is typing in the room or not.
-        pub typing: bool,
-    }
+            let event = from_raw_json_value(&json)?;
 
-    #[cfg(feature = "unstable-msc2409")]
-    impl TypingContent {
-        /// Creates a new `TypingContent`.
-        pub fn new(room_id: OwnedRoomId, user_id: OwnedUserId, typing: bool) -> Self {
-            Self { room_id, user_id, typing }
+            let AppserviceFields { to_user_id, to_device_id } = from_raw_json_value(&json)?;
+
+            Ok(AnyAppserviceToDeviceEvent::new(event, to_user_id, to_device_id))
         }
     }
 
-    #[cfg(feature = "server")]
+    #[cfg(feature = "unstable-msc4203")]
+    impl JsonCastable<JsonObject> for AnyAppserviceToDeviceEvent {}
+    #[cfg(feature = "unstable-msc4203")]
+    impl JsonCastable<AnyToDeviceEvent> for AnyAppserviceToDeviceEvent {}
+
     #[cfg(test)]
     mod tests {
-        use ruma_common::api::{OutgoingRequest, SendAccessToken};
-        use serde_json::json;
+        use assert_matches2::assert_let;
+        use js_int::uint;
+        use ruma_common::{
+            MilliSecondsSinceUnixEpoch, canonical_json::assert_to_canonical_json_eq, event_id,
+            room_id, user_id,
+        };
+        use ruma_events::receipt::ReceiptType;
+        use serde_json::{from_value as from_json_value, json};
 
-        use super::Request;
+        use super::EphemeralData;
 
+        #[cfg(feature = "client")]
         #[test]
-        fn decode_request_contains_events_field() {
-            let dummy_event = serde_json::from_value(json!({
+        fn request_contains_events_field() {
+            use ruma_common::api::{OutgoingRequest, auth_scheme::SendAccessToken};
+
+            let dummy_event_json = json!({
                 "type": "m.room.message",
                 "event_id": "$143273582443PhrSn:example.com",
                 "origin_server_ts": 1,
@@ -406,23 +352,138 @@ pub mod v1 {
                     "body": "test",
                     "msgtype": "m.text",
                 },
-            }))
-            .unwrap();
+            });
+            let dummy_event = from_json_value(dummy_event_json.clone()).unwrap();
             let events = vec![dummy_event];
 
-            let req = Request::new("any_txn_id".into(), events)
+            let req = super::Request::new("any_txn_id".into(), events)
                 .try_into_http_request::<Vec<u8>>(
                     "https://homeserver.tld",
                     SendAccessToken::IfRequired("auth_tok"),
-                    &[ruma_common::api::MatrixVersion::V1_1],
+                    (),
                 )
                 .unwrap();
             let json_body: serde_json::Value = serde_json::from_slice(req.body()).unwrap();
 
             assert_eq!(
-                1,
-                json_body.as_object().unwrap().get("events").unwrap().as_array().unwrap().len()
+                json_body,
+                json!({
+                    "events": [
+                        dummy_event_json,
+                    ]
+                })
             );
+        }
+
+        #[test]
+        fn serde_ephemeral_data() {
+            let room_id = room_id!("!jEsUZKDJdhlrceRyVU:server.local");
+            let user_id = user_id!("@alice:server.local");
+            let event_id = event_id!("$1435641916114394fHBL");
+
+            // Test m.typing serde.
+            let typing_json = json!({
+                "type": "m.typing",
+                "room_id": room_id,
+                "content": {
+                    "user_ids": [user_id],
+                },
+            });
+
+            let data = from_json_value::<EphemeralData>(typing_json.clone()).unwrap();
+            assert_let!(EphemeralData::Typing(typing) = &data);
+            assert_eq!(typing.room_id, room_id);
+            assert_eq!(typing.content.user_ids, &[user_id.to_owned()]);
+
+            assert_to_canonical_json_eq!(data, typing_json);
+
+            // Test m.receipt serde.
+            let receipt_json = json!({
+                "type": "m.receipt",
+                "room_id": room_id,
+                "content": {
+                    event_id: {
+                        "m.read": {
+                            user_id: {
+                                "ts": 453,
+                            },
+                        },
+                    },
+                },
+            });
+
+            let data = from_json_value::<EphemeralData>(receipt_json.clone()).unwrap();
+            assert_let!(EphemeralData::Receipt(receipt) = &data);
+            assert_eq!(receipt.room_id, room_id);
+            let event_receipts = receipt.content.get(event_id).unwrap();
+            let event_read_receipts = event_receipts.get(&ReceiptType::Read).unwrap();
+            let event_user_read_receipt = event_read_receipts.get(user_id).unwrap();
+            assert_eq!(event_user_read_receipt.ts, Some(MilliSecondsSinceUnixEpoch(uint!(453))));
+
+            assert_to_canonical_json_eq!(data, receipt_json);
+
+            // Test m.presence serde.
+            let presence_json = json!({
+                "type": "m.presence",
+                "sender": user_id,
+                "content": {
+                    "avatar_url": "mxc://localhost/wefuiwegh8742w",
+                    "currently_active": false,
+                    "last_active_ago": 785,
+                    "presence": "online",
+                    "status_msg": "Making cupcakes",
+                },
+            });
+
+            let data = from_json_value::<EphemeralData>(presence_json.clone()).unwrap();
+            assert_let!(EphemeralData::Presence(presence) = &data);
+            assert_eq!(presence.sender, user_id);
+            assert_eq!(presence.content.currently_active, Some(false));
+
+            assert_to_canonical_json_eq!(data, presence_json);
+
+            // Test custom serde.
+            let custom_json = json!({
+                "type": "dev.ruma.custom",
+                "key": "value",
+                "content": {
+                    "foo": "bar",
+                },
+            });
+
+            let data = from_json_value::<EphemeralData>(custom_json.clone()).unwrap();
+
+            assert_to_canonical_json_eq!(data, custom_json);
+        }
+
+        #[test]
+        #[cfg(feature = "unstable-msc4203")]
+        fn serde_any_appservice_to_device_event() {
+            use ruma_common::{device_id, user_id};
+
+            use super::AnyAppserviceToDeviceEvent;
+
+            let event_json = json!({
+                "type": "m.key.verification.request",
+                "sender": "@alice:example.org",
+                "content": {
+                    "from_device": "AliceDevice2",
+                    "methods": [
+                        "m.sas.v1"
+                    ],
+                    "timestamp": 1_559_598_944_869_i64,
+                    "transaction_id": "S0meUniqueAndOpaqueString"
+                },
+                "to_user_id": "@bob:example.org",
+                "to_device_id": "DEVICEID"
+            });
+
+            // Test deserialization
+            let event = from_json_value::<AnyAppserviceToDeviceEvent>(event_json.clone()).unwrap();
+            assert_eq!(event.sender(), user_id!("@alice:example.org"));
+            assert_eq!(event.to_user_id, user_id!("@bob:example.org"));
+            assert_eq!(event.to_device_id, device_id!("DEVICEID"));
+            assert_eq!(event.event_type().to_string(), "m.key.verification.request");
         }
     }
 }
